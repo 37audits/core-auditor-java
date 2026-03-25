@@ -30,12 +30,36 @@
 	<artifactId>core-auditor-java</artifactId>
 	<version>1.0.0-SNAPSHOT</version>
 	<name>37 Audits :: Core Auditor Java</name>
+	<description>A Java library providing core auditing functionality based on AWS Lambda functions.</description>
 	<inceptionYear>2026</inceptionYear>
 
 	<organization>
 		<name>37 Audits</name>
 		<url>https://www.37audits.com</url>
 	</organization>
+
+	<licenses>
+		<license>
+			<name>The Apache License, Version 2.0</name>
+			<url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+		</license>
+	</licenses>
+
+	<developers>
+		<developer>
+			<name>Thiago Moreira</name>
+			<email>thiago.moreira@37audits.com</email>
+			<organization>37 Audits</organization>
+			<organizationUrl>https://www.37audits.com</organizationUrl>
+		</developer>
+	</developers>
+
+	<scm>
+		<connection>scm:git:https://github.com/37audits/core-auditor-java.git</connection>
+		<developerConnection>scm:git:ssh://git@github.com/37audits/core-auditor-java.git</developerConnection>
+		<tag>HEAD</tag>
+		<url>https://github.com/37audits/core-auditor-java</url>
+	</scm>
 
 	<properties>
 		<java.version>17</java.version>
