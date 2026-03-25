@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.thirdysevenaudits.util;
+package com.thirtysevenaudits.util;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -24,6 +24,8 @@ import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
+
+import com.thirtysevenaudits.util.CDNUtil;
 
 class CDNUtilTest {
 

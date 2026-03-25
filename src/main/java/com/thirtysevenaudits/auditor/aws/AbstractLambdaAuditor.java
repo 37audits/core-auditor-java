@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.thirdysevenaudits.auditor.aws;
+package com.thirtysevenaudits.auditor.aws;
 
 import java.util.List;
 
@@ -22,13 +22,13 @@ import org.slf4j.LoggerFactory;
 
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
-import com.thirdysevenaudits.auditor.Auditor;
-import com.thirdysevenaudits.auditor.BasicAuth;
-import com.thirdysevenaudits.auditor.Check;
-import com.thirdysevenaudits.auditor.CheckStatus;
-import com.thirdysevenaudits.auditor.Request;
-import com.thirdysevenaudits.auditor.Response;
-import com.thirdysevenaudits.util.VersionUtil;
+import com.thirtysevenaudits.auditor.Auditor;
+import com.thirtysevenaudits.auditor.BasicAuth;
+import com.thirtysevenaudits.auditor.Check;
+import com.thirtysevenaudits.auditor.CheckStatus;
+import com.thirtysevenaudits.auditor.Request;
+import com.thirtysevenaudits.auditor.Response;
+import com.thirtysevenaudits.util.VersionUtil;
 
 public abstract class AbstractLambdaAuditor implements RequestHandler<Request, Response> {
 

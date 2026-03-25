@@ -13,8 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.thirdysevenaudits.auditor;
+package com.thirtysevenaudits.auditor;
 
-public record BasicAuth(String username, String password) {
+import java.util.List;
 
+public record Request(String id, String url, List<Software> stack, BasicAuth basicAuth) {
 }

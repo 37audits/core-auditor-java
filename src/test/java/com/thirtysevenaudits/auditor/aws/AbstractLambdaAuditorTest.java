@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.thirdysevenaudits.auditor.aws;
+package com.thirtysevenaudits.auditor.aws;
 
 import java.io.IOException;
 import java.io.OutputStream;

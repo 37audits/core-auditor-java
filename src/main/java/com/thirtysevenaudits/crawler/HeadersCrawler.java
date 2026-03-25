@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.thirdysevenaudits.crawler;
+package com.thirtysevenaudits.crawler;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -36,8 +36,8 @@ import javax.net.ssl.SSLParameters;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
 
-import com.thirdysevenaudits.auditor.BasicAuth;
-import com.thirdysevenaudits.util.HeadersUtil;
+import com.thirtysevenaudits.auditor.BasicAuth;
+import com.thirtysevenaudits.util.HeadersUtil;
 
 public class HeadersCrawler {
     // cache hosts that needed relaxed SSL

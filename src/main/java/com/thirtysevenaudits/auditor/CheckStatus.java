@@ -13,8 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.thirdysevenaudits.auditor;
+package com.thirtysevenaudits.auditor;
 
-public record Auditor(String id, String name, String version) {
+public enum CheckStatus {
+
+    INFORMATION, SUCCESS, FAIL, WARNING, ERROR
 
 }

@@ -13,13 +13,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.thirdysevenaudits.auditor;
+package com.thirtysevenaudits.auditor;
 
-public record Software(String vendor, String product, String version) {
-
-    @Override
-    public String toString() {
-        return vendor + " " + product + " " + version;
-    }
+public record Auditor(String id, String name, String version) {
 
 }
