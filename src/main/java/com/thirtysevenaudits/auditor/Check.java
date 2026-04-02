@@ -18,8 +18,18 @@ package com.thirtysevenaudits.auditor;
 import java.util.Collection;
 import java.util.Map;
 
+/**
+ * A single audit finding.
+ *
+ * @param code
+ *            structured identity for this check <em>definition</em> (not the individual finding), modeled as
+ *            {@link CheckCode}. Use {@link CheckCode#id()} as the stable key when grouping findings—similar in spirit
+ *            to Hibernate ORM message ids such as {@code HHH000406}. Recommended {@code id} shapes include
+ *            {@code 37A-AuditorName-NNN} (e.g. {@code 37A-MyAuditor-001}) or compact values such as {@code 37A-000123};
+ *            {@link CheckCode#description()} may hold a short human-readable label. Must not be {@code null}.
+ */
 public record Check(CheckStatus status, String resource, String message, String recommendation, int score,
-        Map<String, Object> data) {
+        Map<String, Object> data, CheckCode code) {
 
     public static long countStatus(Collection<Check> checks, CheckStatus status) {
         if (checks != null) {
@@ -33,6 +43,7 @@ public record Check(CheckStatus status, String resource, String message, String 
         if (c.status() != CheckStatus.FAIL)
             return c;
 
-        return new Check(CheckStatus.WARNING, c.resource(), c.message(), c.recommendation(), c.score(), c.data());
+        return new Check(CheckStatus.WARNING, c.resource(), c.message(), c.recommendation(), c.score(), c.data(),
+                c.code());
     }
 }
