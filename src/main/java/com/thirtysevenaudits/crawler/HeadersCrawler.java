@@ -19,7 +19,6 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpRequest.BodyPublishers;
-import java.net.http.HttpRequest.Builder;
 import java.net.http.HttpResponse;
 import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
@@ -89,22 +88,45 @@ public class HeadersCrawler {
     }
 
     public Map<String, List<String>> fetch(String url) throws Exception {
-        return fetch(url, secureClient, true);
+        return fetch(url, secureClient, true, "HEAD", true);
     }
 
     public Map<String, List<String>> fetch(String url, boolean addBasicAuthentication) throws Exception {
+        return fetchWithSslFallback(url, addBasicAuthentication, "HEAD", true);
+    }
+
+    public Map<String, List<String>> doGet(String url) throws Exception {
+        return fetch(url, secureClient, true, "GET", false);
+    }
+
+    public Map<String, List<String>> doGet(String url, boolean addBasicAuthentication) throws Exception {
+        return fetchWithSslFallback(url, addBasicAuthentication, "GET", false);
+    }
+
+    public Map<String, List<String>> doHead(String url) throws Exception {
+        return fetch(url, secureClient, true, "HEAD", false);
+    }
+
+    public Map<String, List<String>> doHead(String url, boolean addBasicAuthentication) throws Exception {
+        return fetchWithSslFallback(url, addBasicAuthentication, "HEAD", false);
+    }
+
+    private Map<String, List<String>> fetchWithSslFallback(String url, boolean addBasicAuthentication, String method,
+            boolean fallbackToGetOnMethodNotAllowed) throws Exception {
         var uri = URI.create(url);
         var host = uri.getHost();
 
         // fast path: if we already know this host needed insecure mode, use insecure
         // client directly
         if (insecureHostCache.getOrDefault(host, false)) {
-            return HeadersUtil.convertKeyToLowercase(fetch(url, createInsecureClient(), addBasicAuthentication));
+            return HeadersUtil.convertKeyToLowercase(
+                    fetch(url, createInsecureClient(), addBasicAuthentication, method, fallbackToGetOnMethodNotAllowed));
         }
 
         // try secure client first
         try {
-            return HeadersUtil.convertKeyToLowercase(fetch(url, secureClient, addBasicAuthentication));
+            return HeadersUtil.convertKeyToLowercase(
+                    fetch(url, secureClient, addBasicAuthentication, method, fallbackToGetOnMethodNotAllowed));
         } catch (Exception e) {
             // detect PKIX / SSL handshake exceptions - fallback only on those
             Throwable cause = e;
@@ -123,17 +145,18 @@ public class HeadersCrawler {
 
             // cache host as requiring insecure mode
             insecureHostCache.put(host, true);
-            return HeadersUtil.convertKeyToLowercase(fetch(url, createInsecureClient(), addBasicAuthentication));
+            return HeadersUtil.convertKeyToLowercase(
+                    fetch(url, createInsecureClient(), addBasicAuthentication, method, fallbackToGetOnMethodNotAllowed));
         }
     }
 
-    private Map<String, List<String>> fetch(String url, HttpClient client, boolean addBasicAuthentication)
-            throws Exception {
-        var req = createHttpRequest(url, "HEAD", addBasicAuthentication);
+    private Map<String, List<String>> fetch(String url, HttpClient client, boolean addBasicAuthentication, String method,
+            boolean fallbackToGetOnMethodNotAllowed) throws Exception {
+        var req = createHttpRequest(url, method, addBasicAuthentication);
         HttpResponse<String> resp = client.send(req, HttpResponse.BodyHandlers.ofString());
 
         var statusCode = resp.statusCode();
-        if (statusCode == 405) {
+        if (statusCode == 405 && fallbackToGetOnMethodNotAllowed) {
             req = createHttpRequest(url, "GET", addBasicAuthentication);
             resp = client.send(req, HttpResponse.BodyHandlers.ofString());
         }
