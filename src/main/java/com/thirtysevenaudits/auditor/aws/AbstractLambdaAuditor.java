@@ -99,6 +99,10 @@ public abstract class AbstractLambdaAuditor implements RequestHandler<Request, R
      * Determines overall status based on collected issues.
      */
     protected CheckStatus determineOverallStatus(List<Check> issues) {
+        if (issues.isEmpty()) {
+            return CheckStatus.SUCCESS;
+        }
+
         boolean hasAllErrors = issues.stream().allMatch(issue -> issue.status() == CheckStatus.ERROR);
         boolean hasFailures = issues.stream().anyMatch(issue -> issue.status() == CheckStatus.FAIL);
         boolean hasWarnings = issues.stream().anyMatch(issue -> issue.status() == CheckStatus.WARNING);
