@@ -54,11 +54,25 @@ public abstract class AbstractLambdaAuditor implements RequestHandler<Request, R
 
     @Override
     public Response handleRequest(Request payload, Context context) {
-        if (payload.url() != null) {
-            return process(payload.url(), payload.basicAuth());
+        if (payload.url() == null) {
+            logger.error("Unable to find the url");
+            return new Response(getAuditor(), CheckStatus.FAIL, "Unable to find the url", null);
         }
 
-        return new Response(getAuditor(), CheckStatus.FAIL, "Unable to find the url", null);
+        String url = payload.url();
+        logger.info("Starting {} audit for {}", getName(), url);
+        try {
+            Response response = process(url, payload.basicAuth());
+            if (response != null) {
+                logger.info("Finished {} audit for {} with status {}", getName(), url, response.status());
+            } else {
+                logger.info("Finished {} audit for {}", getName(), url);
+            }
+            return response;
+        } catch (RuntimeException e) {
+            logger.error("Failed {} audit for {}", getName(), url, e);
+            throw e;
+        }
     }
 
     public abstract Response process(String urlStr, BasicAuth basicAuth);
