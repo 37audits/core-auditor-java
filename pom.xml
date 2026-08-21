@@ -28,7 +28,7 @@
 
 	<groupId>com.37audits</groupId>
 	<artifactId>core-auditor-java</artifactId>
-	<version>1.0.7</version>
+	<version>1.0.8-SNAPSHOT</version>
 	<name>37 Audits :: Core Auditor Java</name>
 	<description>A Java library providing core auditing functionality based on AWS Lambda functions.</description>
 	<url>https://github.com/37audits/core-auditor-java</url>
