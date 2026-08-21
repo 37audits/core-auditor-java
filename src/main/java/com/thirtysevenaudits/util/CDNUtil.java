@@ -34,7 +34,8 @@ public class CDNUtil {
                 if (serverValue != null) {
                     var server = serverValue.toLowerCase();
                     if (server.contains("cloudflare") || server.contains("akamaighost") || server.contains("cloudfront")
-                            || server.contains("google tag manager")) {
+                            || server.contains("google tag manager") || server.contains("imperva")
+                            || server.contains("incapsula")) {
                         return true;
                     }
                 }
@@ -108,6 +109,38 @@ public class CDNUtil {
             for (String viaValue : viaValues) {
                 if ("1.1 google".equalsIgnoreCase(viaValue)) {
                     return true;
+                }
+            }
+        }
+
+        // Check for Imperva / Incapsula
+        List<String> xCdnHeaders = lowerHeaders.get("x-cdn");
+        if (xCdnHeaders != null) {
+            for (String xCdnValue : xCdnHeaders) {
+                if (xCdnValue != null && xCdnValue.toLowerCase().contains("imperva")) {
+                    return true;
+                }
+            }
+        }
+
+        if (lowerHeaders.containsKey("x-iinfo")) {
+            return true;
+        }
+
+        for (String headerName : lowerHeaders.keySet()) {
+            if (headerName.startsWith("x-incap-")) {
+                return true;
+            }
+        }
+
+        List<String> setCookieHeaders = lowerHeaders.get("set-cookie");
+        if (setCookieHeaders != null) {
+            for (String cookie : setCookieHeaders) {
+                if (cookie != null) {
+                    var cookieLower = cookie.toLowerCase();
+                    if (cookieLower.startsWith("visid_incap_") || cookieLower.startsWith("incap_ses_")) {
+                        return true;
+                    }
                 }
             }
         }

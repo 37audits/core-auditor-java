@@ -15,6 +15,7 @@
  */
 package com.thirtysevenaudits.util;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -287,5 +288,73 @@ class CDNUtilTest {
 
         Map<String, List<String>> headers = createMultipleHeaders(headerMap);
         assertTrue(CDNUtil.hasHeaderCdnFingerprints(headers));
+    }
+
+    @Test
+    void isServerHeaderPointingtoCDN_imperva_shouldReturnTrue() {
+        Map<String, List<String>> headers = createHeaders("Server", "Imperva");
+        assertThat(CDNUtil.isServerHeaderPointingtoCDN(headers)).isTrue();
+    }
+
+    @Test
+    void isServerHeaderPointingtoCDN_incapsula_shouldReturnTrue() {
+        Map<String, List<String>> headers = createHeaders("Server", "Incapsula");
+        assertThat(CDNUtil.isServerHeaderPointingtoCDN(headers)).isTrue();
+    }
+
+    @Test
+    void hasHeaderCdnFingerprints_impervaXCdn_shouldReturnTrue() {
+        Map<String, List<String>> headers = createHeaders("X-CDN", "Imperva");
+        assertThat(CDNUtil.hasHeaderCdnFingerprints(headers)).isTrue();
+    }
+
+    @Test
+    void hasHeaderCdnFingerprints_impervaXIInfo_shouldReturnTrue() {
+        Map<String, List<String>> headers = createHeaders("X-Iinfo",
+                "48-51615284-51609876 PNNN RT(1787345481522 47) q(0 0 0 -1) r(0 0) U6");
+        assertThat(CDNUtil.hasHeaderCdnFingerprints(headers)).isTrue();
+    }
+
+    @Test
+    void hasHeaderCdnFingerprints_impervaIncapHeader_shouldReturnTrue() {
+        Map<String, List<String>> headers = createHeaders("X-Incap-Req-Id", "1234567890");
+        assertThat(CDNUtil.hasHeaderCdnFingerprints(headers)).isTrue();
+    }
+
+    @Test
+    void hasHeaderCdnFingerprints_impervaVisidCookie_shouldReturnTrue() {
+        Map<String, List<String>> headers = createHeaders("Set-Cookie",
+                "visid_incap_2839679=qa3hkRxJTKWC9kfmm+zb0Ei6iGoAAAAAQUIPAAAAAABR8HAHHxdsurepqq8/g53j; path=/");
+        assertThat(CDNUtil.hasHeaderCdnFingerprints(headers)).isTrue();
+    }
+
+    @Test
+    void hasHeaderCdnFingerprints_impervaSessionCookie_shouldReturnTrue() {
+        Map<String, List<String>> headers = createHeaders("Set-Cookie",
+                "incap_ses_1695_2839679=wfQLdiqoMyE90GTUF9qFF0i6iGoAAAAAYeKS778hx87CkUp2iqyfMQ==; path=/");
+        assertThat(CDNUtil.hasHeaderCdnFingerprints(headers)).isTrue();
+    }
+
+    @Test
+    void hasHeaderCdnFingerprints_unrelatedCookie_shouldReturnFalse() {
+        Map<String, List<String>> headers = createHeaders("Set-Cookie", "sessionid=abc123; path=/");
+        assertThat(CDNUtil.hasHeaderCdnFingerprints(headers)).isFalse();
+    }
+
+    @Test
+    void hasHeaderCdnFingerprints_impervaRealWorldExample_shouldReturnTrue() {
+        Map<String, String[]> headerMap = new HashMap<>();
+        headerMap.put("Server", new String[] { "bon" });
+        headerMap.put("X-CDN", new String[] { "Imperva" });
+        headerMap.put("X-Iinfo", new String[] { "48-51615284-51609876 PNNN RT(1787345481522 47) q(0 0 0 -1) r(0 0) U6" });
+        headerMap.put("Set-Cookie", new String[] {
+                "visid_incap_2839679=qa3hkRxJTKWC9kfmm+zb0Ei6iGoAAAAAQUIPAAAAAABR8HAHHxdsurepqq8/g53j; path=/",
+                "nlbi_2839679_2147483392=Tq2IFBO6tT6seqwb61XlwQAAAAC4D55E2wqWXmgthoUhtAnB; path=/",
+                "incap_ses_1695_2839679=wfQLdiqoMyE90GTUF9qFF0i6iGoAAAAAYeKS778hx87CkUp2iqyfMQ==; path=/"
+        });
+        headerMap.put("Content-Type", new String[] { "text/javascript" });
+
+        Map<String, List<String>> headers = createMultipleHeaders(headerMap);
+        assertThat(CDNUtil.hasHeaderCdnFingerprints(headers)).isTrue();
     }
 }
