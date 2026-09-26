@@ -15,7 +15,31 @@
  */
 package com.thirtysevenaudits.auditor;
 
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
-public record Request(String id, String url, List<Software> stack, BasicAuth basicAuth) {
+/**
+ * Lambda input.
+ *
+ * <p>{@code preferences} carries the per-monitored-URL, per-auditor settings
+ * the platform API resolved for this run (schema defaults overlaid with the
+ * user's overrides), keyed by preference key. It is never {@code null} after
+ * construction; a payload without the field yields an empty map.
+ */
+public record Request(String id, String url, List<Software> stack, BasicAuth basicAuth,
+        Map<String, Object> preferences) {
+
+    public Request {
+        // Not Map.copyOf: a JSON null value must not blow up deserialization.
+        preferences = (preferences != null)
+                ? Collections.unmodifiableMap(new LinkedHashMap<>(preferences))
+                : Map.of();
+    }
+
+    /** Backward-compatible constructor for callers predating preferences. */
+    public Request(String id, String url, List<Software> stack, BasicAuth basicAuth) {
+        this(id, url, stack, basicAuth, Map.of());
+    }
 }

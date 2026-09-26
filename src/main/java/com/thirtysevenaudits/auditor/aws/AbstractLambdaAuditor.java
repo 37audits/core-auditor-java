@@ -16,6 +16,7 @@
 package com.thirtysevenaudits.auditor.aws;
 
 import java.util.List;
+import java.util.Map;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -62,7 +63,7 @@ public abstract class AbstractLambdaAuditor implements RequestHandler<Request, R
         String url = payload.url();
         logger.info("Starting {} audit for {}", getName(), url);
         try {
-            Response response = process(url, payload.basicAuth());
+            Response response = process(url, payload.basicAuth(), payload.preferences());
             if (response != null) {
                 logger.info("Finished {} audit for {} with status {}", getName(), url, response.status());
             } else {
@@ -76,6 +77,16 @@ public abstract class AbstractLambdaAuditor implements RequestHandler<Request, R
     }
 
     public abstract Response process(String urlStr, BasicAuth basicAuth);
+
+    /**
+     * Preference-aware hook. Auditors with configurable settings override this
+     * one and read their keys from {@code preferences} (never {@code null});
+     * the default simply ignores preferences and delegates to
+     * {@link #process(String, BasicAuth)}.
+     */
+    public Response process(String urlStr, BasicAuth basicAuth, Map<String, Object> preferences) {
+        return process(urlStr, basicAuth);
+    }
 
     public Response success(Check check) {
         return new Response(getAuditor(), CheckStatus.SUCCESS, check.message(), List.of(check));
