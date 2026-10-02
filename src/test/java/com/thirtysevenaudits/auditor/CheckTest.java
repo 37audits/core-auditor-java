@@ -55,6 +55,21 @@ class CheckTest {
         assertThat(toJson(unordered)).contains("\"order\":null");
     }
 
+    @Test
+    void codeConstructorWithoutRationaleLeavesItNull() {
+        assertThat(CODE.rationale()).isNull();
+    }
+
+    @Test
+    void codeRationaleIsSerialized() {
+        CheckCode code = new CheckCode("37A-Test-400", "test", "Visitors leave slow pages.");
+        Check explained = new Check(CheckStatus.FAIL, "https://example.com", "broken", "fix it", 0, Map.of(), code);
+        Check unexplained = new Check(CheckStatus.SUCCESS, "https://example.com", "ok", null, 0, Map.of(), CODE);
+
+        assertThat(toJson(explained)).contains("\"rationale\":\"Visitors leave slow pages.\"");
+        assertThat(toJson(unexplained)).contains("\"rationale\":null");
+    }
+
     private static String toJson(Check check) {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
 
