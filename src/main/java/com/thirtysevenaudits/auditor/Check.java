@@ -27,9 +27,18 @@ import java.util.Map;
  *            to Hibernate ORM message ids such as {@code HHH000406}. Recommended {@code id} shapes include
  *            {@code 37A-AuditorName-NNN} (e.g. {@code 37A-MyAuditor-001}) or compact values such as {@code 37A-000123};
  *            {@link CheckCode#description()} may hold a short human-readable label. Must not be {@code null}.
+ * @param order
+ *            1-based step number of this check within the run, for auditors whose checks follow a meaningful
+ *            sequence (e.g. load the page, find the form, submit it), so consumers can list them in the order they
+ *            were performed. {@code null} when the auditor's checks have no such sequence.
  */
 public record Check(CheckStatus status, String resource, String message, String recommendation, int score,
-        Map<String, Object> data, CheckCode code) {
+        Map<String, Object> data, CheckCode code, Integer order) {
+
+    public Check(CheckStatus status, String resource, String message, String recommendation, int score,
+            Map<String, Object> data, CheckCode code) {
+        this(status, resource, message, recommendation, score, data, code, null);
+    }
 
     public static long countStatus(Collection<Check> checks, CheckStatus status) {
         if (checks != null) {
@@ -44,6 +53,6 @@ public record Check(CheckStatus status, String resource, String message, String 
             return c;
 
         return new Check(CheckStatus.WARNING, c.resource(), c.message(), c.recommendation(), c.score(), c.data(),
-                c.code());
+                c.code(), c.order());
     }
 }
