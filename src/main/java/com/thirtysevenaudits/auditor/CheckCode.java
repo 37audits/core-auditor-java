@@ -15,6 +15,21 @@
  */
 package com.thirtysevenaudits.auditor;
 
-public record CheckCode(String id, String description) {
+/**
+ * Identity of a check <em>definition</em>, shared by every finding the rule produces.
+ *
+ * @param id
+ *            stable key of the rule, e.g. {@code 37A-MyAuditor-400}.
+ * @param description
+ *            short human-readable label of the rule.
+ * @param rationale
+ *            why the rule matters to the site owner: the impact of leaving it unaddressed (lost traffic, security
+ *            exposure, broken analytics...). Static text, without observed values. {@code null} when the rule has
+ *            none.
+ */
+public record CheckCode(String id, String description, String rationale) {
 
+    public CheckCode(String id, String description) {
+        this(id, description, null);
+    }
 }

@@ -26,7 +26,8 @@ import java.util.Map;
  *            {@link CheckCode}. Use {@link CheckCode#id()} as the stable key when grouping findings—similar in spirit
  *            to Hibernate ORM message ids such as {@code HHH000406}. Recommended {@code id} shapes include
  *            {@code 37A-AuditorName-NNN} (e.g. {@code 37A-MyAuditor-001}) or compact values such as {@code 37A-000123};
- *            {@link CheckCode#description()} may hold a short human-readable label. Must not be {@code null}.
+ *            {@link CheckCode#description()} may hold a short human-readable label and
+ *            {@link CheckCode#rationale()} why the check matters. Must not be {@code null}.
  * @param order
  *            1-based step number of this check within the run, for auditors whose checks follow a meaningful
  *            sequence (e.g. load the page, find the form, submit it), so consumers can list them in the order they
