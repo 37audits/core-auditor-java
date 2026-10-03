@@ -42,14 +42,26 @@ public class HeadersCrawler {
     // cache hosts that needed relaxed SSL
     private final ConcurrentHashMap<String, Boolean> insecureHostCache = new ConcurrentHashMap<>();
     private final HttpClient secureClient;
+    private final WebBotAuthSigner signer;
     private Map<String, String> headers = new HashMap<String, String>();
 
     public HeadersCrawler(String userAgent, BasicAuth basicAuth) {
         this(userAgent, null, true, basicAuth);
     }
 
+    /**
+     * Requests are signed with {@link WebBotAuthSigner#defaultSigner()} when the
+     * environment provides a key; see the five-argument constructor to control
+     * signing explicitly.
+     */
     public HeadersCrawler(String userAgent, Map<String, String> extraHeaders, boolean followRedirect,
             BasicAuth basicAuth) {
+        this(userAgent, extraHeaders, followRedirect, basicAuth, WebBotAuthSigner.defaultSigner().orElse(null));
+    }
+
+    public HeadersCrawler(String userAgent, Map<String, String> extraHeaders, boolean followRedirect,
+            BasicAuth basicAuth, WebBotAuthSigner signer) {
+        this.signer = signer;
         this.headers.put("user-agent", userAgent);
         if (extraHeaders != null) {
             this.headers.putAll(extraHeaders);
@@ -172,7 +184,8 @@ public class HeadersCrawler {
     }
 
     private HttpRequest createHttpRequest(String url, String method, boolean addBasicAuthentication) {
-        var builder = HttpRequest.newBuilder(URI.create(url));
+        var uri = URI.create(url);
+        var builder = HttpRequest.newBuilder(uri);
 
         headers.forEach((k, v) -> {
 
@@ -181,6 +194,11 @@ public class HeadersCrawler {
             }
 
         });
+
+        // Web Bot Auth: a fresh signature per request (the 405 fallback rebuilds the request too)
+        if (signer != null) {
+            signer.headers(uri).forEach(builder::header);
+        }
 
         return builder.timeout(Duration.ofSeconds(20)).method(method, BodyPublishers.noBody()).build();
     }

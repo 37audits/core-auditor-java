@@ -29,6 +29,7 @@ import com.thirtysevenaudits.auditor.Check;
 import com.thirtysevenaudits.auditor.CheckStatus;
 import com.thirtysevenaudits.auditor.Request;
 import com.thirtysevenaudits.auditor.Response;
+import com.thirtysevenaudits.crawler.WebBotAuthSigner;
 import com.thirtysevenaudits.util.VersionUtil;
 
 public abstract class AbstractLambdaAuditor implements RequestHandler<Request, Response> {
@@ -47,6 +48,17 @@ public abstract class AbstractLambdaAuditor implements RequestHandler<Request, R
 
     public String getUserAgent() {
         return "37AuditsBot/1.0 (+https://www.37audits.com/bot)";
+    }
+
+    /**
+     * Web Bot Auth headers ({@code Signature-Agent}, {@code Signature-Input},
+     * {@code Signature}) for a request to {@code url}, so bot-management
+     * services can verify the crawler. Empty when no signing key is configured
+     * (see {@link WebBotAuthSigner#ENV_JWK}), so callers can always add them
+     * unconditionally next to {@link #getUserAgent()}.
+     */
+    public Map<String, String> getWebBotAuthHeaders(String url) {
+        return WebBotAuthSigner.defaultSigner().map(signer -> signer.headers(url)).orElse(Map.of());
     }
 
     public Auditor getAuditor() {

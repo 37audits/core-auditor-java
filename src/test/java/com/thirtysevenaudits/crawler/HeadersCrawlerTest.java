@@ -15,6 +15,7 @@
  */
 package com.thirtysevenaudits.crawler;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.io.IOException;
@@ -30,6 +31,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import com.sun.net.httpserver.Headers;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
@@ -38,17 +40,21 @@ class HeadersCrawlerTest {
     private HttpServer httpServer;
     private String baseUrl;
     private final List<String> receivedMethods = new CopyOnWriteArrayList<>();
+    private final List<Headers> receivedHeaders = new CopyOnWriteArrayList<>();
 
     @BeforeEach
     void setUp() throws IOException {
         receivedMethods.clear();
+        receivedHeaders.clear();
         httpServer = HttpServer.create(new InetSocketAddress(0), 0);
         httpServer.createContext("/ok", exchange -> {
             receivedMethods.add(exchange.getRequestMethod());
+            receivedHeaders.add(exchange.getRequestHeaders());
             respond(exchange, 200, "ok");
         });
         httpServer.createContext("/head-not-allowed", exchange -> {
             receivedMethods.add(exchange.getRequestMethod());
+            receivedHeaders.add(exchange.getRequestHeaders());
             if ("HEAD".equalsIgnoreCase(exchange.getRequestMethod())) {
                 respond(exchange, 405, "");
             } else {
@@ -135,6 +141,38 @@ class HeadersCrawlerTest {
 
         assertEquals(List.of("HEAD"), new ArrayList<>(receivedMethods));
         assertEquals(List.of("405"), headers.get("http-status-code"));
+    }
+
+    @Test
+    void requests_areSignedWhenASignerIsConfigured() throws Exception {
+        var key = WebBotAuthSignerTest.newKey();
+        var signer = WebBotAuthSigner.of(key, "https://www.37audits.com");
+        var crawler = new HeadersCrawler("test-agent", null, true, null, signer);
+
+        crawler.fetch(baseUrl + "/head-not-allowed");
+
+        assertThat(receivedHeaders).hasSize(2);
+        for (Headers headers : receivedHeaders) {
+            assertThat(headers.getFirst("Signature-Agent")).isEqualTo("\"https://www.37audits.com\"");
+            assertThat(headers.getFirst("Signature-Input")).contains("tag=\"web-bot-auth\"")
+                    .contains("keyid=\"" + signer.keyId() + "\"");
+            assertThat(headers.getFirst("Signature")).startsWith("sig1=:");
+            assertThat(headers.getFirst("User-Agent")).isEqualTo("test-agent");
+        }
+        // the GET retry after the 405 is signed again rather than reusing the HEAD signature
+        assertThat(receivedHeaders.get(0).getFirst("Signature")).isNotEqualTo(receivedHeaders.get(1).getFirst("Signature"));
+    }
+
+    @Test
+    void requests_areNotSignedWithoutASigner() throws Exception {
+        var crawler = new HeadersCrawler("test-agent", null, true, null, null);
+
+        crawler.doGet(baseUrl + "/ok");
+
+        assertThat(receivedHeaders).hasSize(1);
+        assertThat(receivedHeaders.get(0).containsKey("Signature-Input")).isFalse();
+        assertThat(receivedHeaders.get(0).containsKey("Signature")).isFalse();
+        assertThat(receivedHeaders.get(0).containsKey("Signature-Agent")).isFalse();
     }
 
     private static void respond(HttpExchange exchange, int statusCode, String body) throws IOException {
