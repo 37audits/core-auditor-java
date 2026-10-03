@@ -120,6 +120,15 @@ public final class WebBotAuthSigner {
         return Default.SIGNER;
     }
 
+    /**
+     * Headers from {@link #defaultSigner()} for a request to {@code url}, or an
+     * empty map when no key is configured — for code that builds requests
+     * outside an auditor (visitors, static helpers).
+     */
+    public static Map<String, String> defaultHeaders(String url) {
+        return defaultSigner().map(signer -> signer.headers(url)).orElse(Map.of());
+    }
+
     static Optional<WebBotAuthSigner> fromEnvironment() {
         return fromEnvironment(System.getenv(ENV_JWK), System.getenv(ENV_SIGNATURE_AGENT));
     }

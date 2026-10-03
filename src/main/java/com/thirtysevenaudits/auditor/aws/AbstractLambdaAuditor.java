@@ -58,7 +58,7 @@ public abstract class AbstractLambdaAuditor implements RequestHandler<Request, R
      * unconditionally next to {@link #getUserAgent()}.
      */
     public Map<String, String> getWebBotAuthHeaders(String url) {
-        return WebBotAuthSigner.defaultSigner().map(signer -> signer.headers(url)).orElse(Map.of());
+        return WebBotAuthSigner.defaultHeaders(url);
     }
 
     public Auditor getAuditor() {

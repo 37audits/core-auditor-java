@@ -157,6 +157,13 @@ class WebBotAuthSignerTest {
     }
 
     @Test
+    void defaultHeaders_areEmptyWhenNoKeyIsConfigured() {
+        // the test JVM has no WEB_BOT_AUTH_JWK, so the default signer is absent
+        assertThat(WebBotAuthSigner.defaultSigner()).isEmpty();
+        assertThat(WebBotAuthSigner.defaultHeaders("https://example.com/")).isEmpty();
+    }
+
+    @Test
     void fromEnvironment_isEmptyWithoutAKey() {
         assertThat(WebBotAuthSigner.fromEnvironment(null, null)).isEmpty();
         assertThat(WebBotAuthSigner.fromEnvironment("  ", null)).isEmpty();
