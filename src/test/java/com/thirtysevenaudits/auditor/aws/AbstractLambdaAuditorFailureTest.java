@@ -18,6 +18,7 @@ package com.thirtysevenaudits.auditor.aws;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
+import java.util.Map;
 import java.util.function.Supplier;
 
 import org.junit.jupiter.api.Test;
@@ -97,6 +98,61 @@ class AbstractLambdaAuditorFailureTest {
     }
 
     @Test
+    void ensureNotBlockedStopsTheAuditWithTheBlockedResponse() {
+        FailingAuditor auditor = new FailingAuditor(null);
+        auditor.behavior = () -> {
+            auditor.ensureNotBlocked(URL, 429, null);
+            return new Response(null, CheckStatus.SUCCESS, "not reached", List.of());
+        };
+
+        Response response = auditor.handleRequest(new Request("id", URL, List.of(), null), null);
+
+        assertThat(response.status()).isEqualTo(CheckStatus.ERROR);
+        assertThat(response.message()).isEqualTo("The site rate limited 37AuditsBot (HTTP 429).");
+        assertThat(response.checks().get(0).code().id()).isEqualTo("37A-FailingAuditor-590");
+    }
+
+    @Test
+    void blockSwallowedByTheAuditorsCatchAllStillAnswersWithTheBlockedResponse() {
+        FailingAuditor auditor = new FailingAuditor(null);
+        auditor.behavior = () -> {
+            try {
+                auditor.ensureNotBlocked(URL, Map.of("http-status-code", List.of("403")));
+                return new Response(null, CheckStatus.SUCCESS, "not reached", List.of());
+            } catch (Exception e) {
+                return new Response(null, CheckStatus.ERROR, "generic: " + e.getMessage(), null);
+            }
+        };
+
+        Response response = auditor.handleRequest(new Request("id", URL, List.of(), null), null);
+
+        assertThat(response.message()).isEqualTo("The site blocked 37AuditsBot's request (HTTP 403).");
+        assertThat(response.checks()).hasSize(1);
+    }
+
+    @Test
+    void blockOfOneRunDoesNotLeakIntoTheNext() {
+        FailingAuditor auditor = new FailingAuditor(null);
+        auditor.behavior = () -> {
+            try {
+                auditor.ensureNotBlocked(URL, 403, null);
+            } catch (Exception e) {
+                // swallowed
+            }
+            return null;
+        };
+        auditor.handleRequest(new Request("id", URL, List.of(), null), null);
+
+        Response expected = new Response(null, CheckStatus.SUCCESS, "served", List.of());
+        auditor.behavior = () -> {
+            auditor.ensureNotBlocked(URL, 200, null);
+            return expected;
+        };
+
+        assertThat(auditor.handleRequest(new Request("id", URL, List.of(), null), null)).isSameAs(expected);
+    }
+
+    @Test
     void auditorsOwnResponseIsReturnedUntouched() {
         Response expected = new Response(null, CheckStatus.WARNING, "as is", List.of());
 
@@ -108,7 +164,7 @@ class AbstractLambdaAuditorFailureTest {
     }
 
     private static final class FailingAuditor extends AbstractLambdaAuditor {
-        private final Supplier<Response> behavior;
+        private Supplier<Response> behavior;
 
         FailingAuditor(Supplier<Response> behavior) {
             this.behavior = behavior;

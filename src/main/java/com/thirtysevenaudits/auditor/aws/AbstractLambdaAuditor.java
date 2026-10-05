@@ -47,6 +47,9 @@ public abstract class AbstractLambdaAuditor implements RequestHandler<Request, R
 
     protected final Logger logger = LoggerFactory.getLogger(getClass());
 
+    // Set by ensureNotBlocked for the run in progress; a Lambda instance handles one request at a time.
+    private SiteBlockedException blockedBy;
+
     public String getId() {
         return this.getClass().getName();
     }
@@ -85,8 +88,13 @@ public abstract class AbstractLambdaAuditor implements RequestHandler<Request, R
 
         String url = payload.url();
         logger.info("Starting {} audit for {}", getName(), url);
+        blockedBy = null;
         try {
             Response response = process(url, payload.basicAuth(), payload.preferences());
+            if (blockedBy != null) {
+                // The auditor's own catch-all turned the block into a generic error.
+                return blocked(blockedBy);
+            }
             if (response != null) {
                 logger.info("Finished {} audit for {} with status {}", getName(), url, response.status());
             } else {
@@ -94,11 +102,44 @@ public abstract class AbstractLambdaAuditor implements RequestHandler<Request, R
             }
             return response;
         } catch (SiteBlockedException e) {
-            logger.warn("Blocked {} audit for {}: {} answered HTTP {}", getName(), url, e.url(), e.statusCode());
             return blocked(e);
         } catch (RuntimeException e) {
+            if (blockedBy != null) {
+                return blocked(blockedBy);
+            }
             logger.error("Failed {} audit for {}", getName(), url, e);
             return error(describe(e), null);
+        }
+    }
+
+    /**
+     * Stops the audit when the response of the audited page is a refusal (HTTP 403, HTTP 429 or a Cloudflare
+     * challenge) rather than the page: throws {@link SiteBlockedException}, which {@link #handleRequest} answers
+     * with the {@link #blocked(SiteBlockedException) blocked} response. Call it on the response of the audited URL
+     * before reading it. The block is also remembered for the rest of the run, so the blocked response is returned
+     * even when a catch-all in the auditor swallows the exception.
+     *
+     * @param cfMitigated
+     *            value of the {@code cf-mitigated} response header, or {@code null} when absent.
+     */
+    protected void ensureNotBlocked(String url, int statusCode, String cfMitigated) {
+        try {
+            SiteBlockedException.throwIfBlocked(url, statusCode, cfMitigated);
+        } catch (SiteBlockedException e) {
+            blockedBy = e;
+            throw e;
+        }
+    }
+
+    /**
+     * Same as {@link #ensureNotBlocked(String, int, String)} for the header map {@code HeadersCrawler} returns.
+     */
+    protected void ensureNotBlocked(String url, Map<String, List<String>> headers) {
+        try {
+            SiteBlockedException.throwIfBlocked(url, headers);
+        } catch (SiteBlockedException e) {
+            blockedBy = e;
+            throw e;
         }
     }
 
@@ -107,6 +148,8 @@ public abstract class AbstractLambdaAuditor implements RequestHandler<Request, R
      * {@code 37A-<AuditorClass>-590}, that says the bot was blocked and how to allow it.
      */
     protected Response blocked(SiteBlockedException e) {
+        logger.warn("Blocked {} audit: {} answered HTTP {}", getName(), e.url(), e.statusCode());
+
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("httpStatusCode", e.statusCode());
         data.put("challenge", e.challenge());

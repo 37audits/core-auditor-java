@@ -24,9 +24,10 @@ import java.util.Map;
  * evaluate it.
  *
  * <p>
- * Auditors call {@link #throwIfBlocked(String, int, String)} on the response of the audited page, before reading
- * it. {@code AbstractLambdaAuditor.handleRequest} catches the exception and answers with an
- * {@link CheckStatus#ERROR} response that tells the site owner the bot was blocked.
+ * Auditors call {@code AbstractLambdaAuditor.ensureNotBlocked} on the response of the audited page, before reading
+ * it; code that has no auditor at hand (a visitor, a static helper) calls
+ * {@link #throwIfBlocked(String, int, String)} and lets the exception propagate. {@code handleRequest} answers
+ * either one with an {@link CheckStatus#ERROR} response that tells the site owner the bot was blocked.
  */
 public class SiteBlockedException extends RuntimeException {
 
