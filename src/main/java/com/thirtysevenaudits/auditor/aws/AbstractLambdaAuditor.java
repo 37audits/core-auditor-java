@@ -15,6 +15,7 @@
  */
 package com.thirtysevenaudits.auditor.aws;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -26,13 +27,23 @@ import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.thirtysevenaudits.auditor.Auditor;
 import com.thirtysevenaudits.auditor.BasicAuth;
 import com.thirtysevenaudits.auditor.Check;
+import com.thirtysevenaudits.auditor.CheckCode;
 import com.thirtysevenaudits.auditor.CheckStatus;
 import com.thirtysevenaudits.auditor.Request;
 import com.thirtysevenaudits.auditor.Response;
+import com.thirtysevenaudits.auditor.SiteBlockedException;
 import com.thirtysevenaudits.crawler.WebBotAuthSigner;
 import com.thirtysevenaudits.util.VersionUtil;
 
 public abstract class AbstractLambdaAuditor implements RequestHandler<Request, Response> {
+
+    /** Number of the check code reported when the site refused the auditor's request. */
+    public static final int CODE_SITE_BLOCKED = 590;
+
+    private static final String BLOCKED_RECOMMENDATION = "Allow 37AuditsBot in your firewall or bot protection: "
+            + "allowlist its user agent, or verify its Web Bot Auth signature. See https://www.37audits.com/bot.";
+
+    private static final int MAX_FAILURE_MESSAGE_LENGTH = 300;
 
     protected final Logger logger = LoggerFactory.getLogger(getClass());
 
@@ -82,10 +93,48 @@ public abstract class AbstractLambdaAuditor implements RequestHandler<Request, R
                 logger.info("Finished {} audit for {}", getName(), url);
             }
             return response;
+        } catch (SiteBlockedException e) {
+            logger.warn("Blocked {} audit for {}: {} answered HTTP {}", getName(), url, e.url(), e.statusCode());
+            return blocked(e);
         } catch (RuntimeException e) {
             logger.error("Failed {} audit for {}", getName(), url, e);
-            throw e;
+            return error(describe(e), null);
         }
+    }
+
+    /**
+     * The {@link CheckStatus#ERROR} response for a site that refused the auditor's request: one check, with code
+     * {@code 37A-<AuditorClass>-590}, that says the bot was blocked and how to allow it.
+     */
+    protected Response blocked(SiteBlockedException e) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("httpStatusCode", e.statusCode());
+        data.put("challenge", e.challenge());
+
+        CheckCode code = new CheckCode("37A-" + getClass().getSimpleName() + "-" + CODE_SITE_BLOCKED,
+                "The site blocked the auditor's request.",
+                "While 37AuditsBot is blocked this audit cannot look at the site, so problems on it go unreported.");
+
+        return error(new Check(CheckStatus.ERROR, e.url(), e.getMessage(), BLOCKED_RECOMMENDATION, 0, data, code));
+    }
+
+    /**
+     * One-line summary of an exception the auditor did not handle, for the response message. Multi-line messages
+     * (Playwright's, for instance) are collapsed and cut at {@value #MAX_FAILURE_MESSAGE_LENGTH} characters; the
+     * full stack trace is in the log.
+     */
+    private static String describe(RuntimeException e) {
+        String summary = e.getClass().getSimpleName();
+
+        if (e.getMessage() != null && !e.getMessage().isBlank()) {
+            summary += ": " + e.getMessage().strip().replaceAll("\\s+", " ");
+        }
+
+        if (summary.length() > MAX_FAILURE_MESSAGE_LENGTH) {
+            summary = summary.substring(0, MAX_FAILURE_MESSAGE_LENGTH) + "...";
+        }
+
+        return "The audit could not finish: " + summary;
     }
 
     public abstract Response process(String urlStr, BasicAuth basicAuth);
