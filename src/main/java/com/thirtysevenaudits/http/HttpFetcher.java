@@ -64,7 +64,8 @@ import com.thirtysevenaudits.crawler.WebBotAuthSigner;
  * <li>carries the audited site's Basic Auth credentials only when it goes to the audited host (or its {@code www.}
  * twin), never to a third-party host;</li>
  * <li>times out (10 s to connect, 20 s for the whole exchange by default);</li>
- * <li>retries once without certificate validation when the TLS handshake fails, and remembers the host;</li>
+ * <li>retries once without certificate validation when the TLS handshake fails, and remembers the host (unless
+ * {@link Builder#tlsFallback(boolean) turned off});</li>
  * <li>reads at most {@code maxBodyBytes} of the body (5 MB by default) and decodes {@code gzip} / {@code deflate}.</li>
  * </ul>
  * Redirects are followed by the fetcher itself (up to {@value #MAX_REDIRECTS}), so the headers above are
@@ -110,6 +111,10 @@ public final class HttpFetcher {
 
     public FetchResponse head(String url) throws IOException {
         return send("HEAD", url, Map.of());
+    }
+
+    public FetchResponse head(String url, Map<String, String> extraHeaders) throws IOException {
+        return send("HEAD", url, extraHeaders);
     }
 
     /** HEAD, then GET when the server answers HEAD with HTTP 405. */
@@ -161,7 +166,7 @@ public final class HttpFetcher {
         try {
             return exchange(secureClient, method, uri, extraHeaders);
         } catch (IOException e) {
-            if (host == null || !isTlsProblem(e)) {
+            if (host == null || !settings.tlsFallback || !isTlsProblem(e)) {
                 throw e;
             }
             insecureHosts.add(host);
@@ -191,11 +196,13 @@ public final class HttpFetcher {
             Thread.currentThread().interrupt();
             throw new IOException("Interrupted while fetching " + uri, e);
         } catch (ExecutionException e) {
-            Throwable cause = e.getCause();
-            if (cause instanceof IOException io) {
+            Throwable cause = e.getCause() == null ? e : e.getCause();
+            if (cause instanceof IOException io && io.getMessage() != null && !io.getMessage().isBlank()) {
                 throw io;
             }
-            throw new IOException(cause == null ? e : cause);
+            // java.net.http leaves some failures (refused connection, unknown host) without a message, which
+            // auditors put in their fetch-failed check
+            throw new IOException(cause.getClass().getSimpleName() + " while fetching " + uri, cause);
         }
 
         Map<String, List<String>> headers = new LinkedHashMap<>();
@@ -409,6 +416,7 @@ public final class HttpFetcher {
         private Duration connectTimeout = DEFAULT_CONNECT_TIMEOUT;
         private Duration requestTimeout = DEFAULT_REQUEST_TIMEOUT;
         private boolean followRedirects = true;
+        private boolean tlsFallback = true;
         private HttpClient.Version version;
         private int maxBodyBytes = DEFAULT_MAX_BODY_BYTES;
         private final Map<String, String> headers = new HashMap<>();
@@ -417,9 +425,16 @@ public final class HttpFetcher {
             this.userAgent = userAgent;
         }
 
-        /** The audited page: Basic Auth is sent only to its host. */
+        /**
+         * The audited page: Basic Auth is sent only to its host. A malformed URL leaves no audited host (Basic Auth
+         * is then sent nowhere), so the auditor can still report the bad URL itself.
+         */
         public Builder auditedUrl(String auditedUrl) {
-            this.auditedHost = auditedUrl == null ? null : URI.create(auditedUrl).getHost();
+            try {
+                this.auditedHost = auditedUrl == null ? null : URI.create(auditedUrl.trim()).getHost();
+            } catch (IllegalArgumentException e) {
+                this.auditedHost = null;
+            }
             return this;
         }
 
@@ -447,6 +462,15 @@ public final class HttpFetcher {
 
         public Builder followRedirects(boolean followRedirects) {
             this.followRedirects = followRedirects;
+            return this;
+        }
+
+        /**
+         * Whether a TLS handshake failure is retried without certificate validation (default {@code true}). Turn it
+         * off when a valid certificate is part of what is audited (MTA-STS, for instance): the failure is then thrown.
+         */
+        public Builder tlsFallback(boolean tlsFallback) {
+            this.tlsFallback = tlsFallback;
             return this;
         }
 
@@ -479,6 +503,7 @@ public final class HttpFetcher {
             copy.connectTimeout = connectTimeout;
             copy.requestTimeout = requestTimeout;
             copy.followRedirects = followRedirects;
+            copy.tlsFallback = tlsFallback;
             copy.version = version;
             copy.maxBodyBytes = maxBodyBytes;
             copy.headers.putAll(headers);

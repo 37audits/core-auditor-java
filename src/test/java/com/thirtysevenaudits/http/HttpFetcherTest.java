@@ -141,6 +141,22 @@ class HttpFetcherTest {
     }
 
     @Test
+    void failures_alwaysCarryAMessage() {
+        String closedPort = "http://127.0.0.1:1/";
+
+        assertThatThrownBy(() -> fetcher().get(closedPort)).isInstanceOf(IOException.class)
+                .satisfies(e -> assertThat(e.getMessage()).isNotBlank());
+    }
+
+    @Test
+    void auditedUrl_toleratesAMalformedUrl() {
+        HttpFetcher fetcher = HttpFetcher.builder("test-agent").auditedUrl("not a url").basicAuth(CREDENTIALS)
+                .build();
+
+        assertThat(fetcher.isAuditedHost("example.com")).isFalse();
+    }
+
+    @Test
     void requests_areSignedOnEveryHop() throws Exception {
         WebBotAuthSigner signer = WebBotAuthSigner.of(WebBotAuthSignerTest.newKey(), "https://www.37audits.com");
         HttpFetcher fetcher = HttpFetcher.builder("test-agent").signer(signer).build();
