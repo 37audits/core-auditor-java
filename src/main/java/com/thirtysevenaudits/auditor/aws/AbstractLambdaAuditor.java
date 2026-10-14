@@ -33,6 +33,8 @@ import com.thirtysevenaudits.auditor.Request;
 import com.thirtysevenaudits.auditor.Response;
 import com.thirtysevenaudits.auditor.SiteBlockedException;
 import com.thirtysevenaudits.crawler.WebBotAuthSigner;
+import com.thirtysevenaudits.http.FetchResponse;
+import com.thirtysevenaudits.http.HttpFetcher;
 import com.thirtysevenaudits.util.VersionUtil;
 
 public abstract class AbstractLambdaAuditor implements RequestHandler<Request, Response> {
@@ -73,6 +75,17 @@ public abstract class AbstractLambdaAuditor implements RequestHandler<Request, R
      */
     public Map<String, String> getWebBotAuthHeaders(String url) {
         return WebBotAuthSigner.defaultHeaders(url);
+    }
+
+    /**
+     * The HTTP client for one audit of {@code auditedUrl}: the bot's {@link #getUserAgent() user agent} and Web Bot
+     * Auth signature on every request, {@code basicAuth} only on requests to the audited host, and the standard
+     * timeouts, redirects, TLS fallback and body limit (see {@link HttpFetcher}). Create it once per
+     * {@code process} call and reuse it; adjust a setting with {@code httpFetcher(url, basicAuth).toBuilder()}.
+     */
+    protected HttpFetcher httpFetcher(String auditedUrl, BasicAuth basicAuth) {
+        return HttpFetcher.builder(getUserAgent()).auditedUrl(auditedUrl).basicAuth(basicAuth)
+                .signer(WebBotAuthSigner.defaultSigner().orElse(null)).build();
     }
 
     public Auditor getAuditor() {
@@ -141,6 +154,15 @@ public abstract class AbstractLambdaAuditor implements RequestHandler<Request, R
             blockedBy = e;
             throw e;
         }
+    }
+
+    /**
+     * Same as {@link #ensureNotBlocked(String, int, String)} for a response of {@link #httpFetcher}. Call it on the
+     * response of the audited page only, not on probes of other paths or hosts.
+     */
+    protected void ensureNotBlocked(FetchResponse response) {
+        ensureNotBlocked(response.requestedUri().toString(), response.statusCode(),
+                response.header(SiteBlockedException.HEADER_CF_MITIGATED));
     }
 
     /**

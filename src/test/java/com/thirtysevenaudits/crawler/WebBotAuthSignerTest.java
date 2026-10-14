@@ -46,7 +46,7 @@ import com.nimbusds.jose.jwk.Curve;
 import com.nimbusds.jose.jwk.OctetKeyPair;
 import com.nimbusds.jose.util.Base64URL;
 
-class WebBotAuthSignerTest {
+public class WebBotAuthSignerTest {
 
     private static final Instant NOW = Instant.ofEpochSecond(1_700_000_000L);
     private static final Clock CLOCK = Clock.fixed(NOW, ZoneOffset.UTC);
@@ -54,7 +54,7 @@ class WebBotAuthSignerTest {
     private static final byte[] SPKI_ED25519_PREFIX = HexFormat.of().parseHex("302a300506032b6570032100");
 
     /** Generates an Ed25519 JWK with the JDK (Nimbus's own generator needs Google Tink). */
-    static OctetKeyPair newKey() throws Exception {
+    public static OctetKeyPair newKey() throws Exception {
         KeyPair pair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
         byte[] spki = pair.getPublic().getEncoded();
         byte[] pkcs8 = pair.getPrivate().getEncoded();
