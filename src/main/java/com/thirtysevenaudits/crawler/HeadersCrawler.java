@@ -15,35 +15,27 @@
  */
 package com.thirtysevenaudits.crawler;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpRequest.BodyPublishers;
-import java.net.http.HttpResponse;
-import java.security.SecureRandom;
-import java.security.cert.X509Certificate;
-import java.time.Duration;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.Base64;
-import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLParameters;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
 
 import com.thirtysevenaudits.auditor.BasicAuth;
-import com.thirtysevenaudits.util.HeadersUtil;
+import com.thirtysevenaudits.http.FetchResponse;
+import com.thirtysevenaudits.http.HttpFetcher;
 
+/**
+ * Response headers of a URL, with the status code under {@code http-status-code}.
+ *
+ * @deprecated use {@link HttpFetcher} ({@code AbstractLambdaAuditor.httpFetcher(url, basicAuth)}) and
+ *             {@link FetchResponse#headerMap()}. This class now delegates to it; unlike the fetcher it sends
+ *             the Basic Auth credentials to every host when asked to.
+ */
+@Deprecated
 public class HeadersCrawler {
-    // cache hosts that needed relaxed SSL
-    private final ConcurrentHashMap<String, Boolean> insecureHostCache = new ConcurrentHashMap<>();
-    private final HttpClient secureClient;
-    private final WebBotAuthSigner signer;
-    private Map<String, String> headers = new HashMap<String, String>();
+    private final HttpFetcher fetcher;
+    private final String authorization;
 
     public HeadersCrawler(String userAgent, BasicAuth basicAuth) {
         this(userAgent, null, true, basicAuth);
@@ -61,145 +53,52 @@ public class HeadersCrawler {
 
     public HeadersCrawler(String userAgent, Map<String, String> extraHeaders, boolean followRedirect,
             BasicAuth basicAuth, WebBotAuthSigner signer) {
-        this.signer = signer;
-        this.headers.put("user-agent", userAgent);
+        // headers only: the body is not downloaded
+        HttpFetcher.Builder builder = HttpFetcher.builder(userAgent).signer(signer).followRedirects(followRedirect)
+                .maxBodyBytes(0);
         if (extraHeaders != null) {
-            this.headers.putAll(extraHeaders);
+            extraHeaders.forEach(builder::header);
         }
-        this.secureClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10))
-                .followRedirects((followRedirect) ? HttpClient.Redirect.NORMAL : HttpClient.Redirect.NEVER).build();
+        this.fetcher = builder.build();
         if (basicAuth != null) {
             String userAndPassword = basicAuth.username() + ":" + basicAuth.password();
-            var value = Base64.getEncoder().encodeToString(userAndPassword.getBytes());
-            this.headers.put("Authorization", "Basic " + value);
+            this.authorization = "Basic "
+                    + Base64.getEncoder().encodeToString(userAndPassword.getBytes(StandardCharsets.UTF_8));
+        } else {
+            this.authorization = null;
         }
-    }
-
-    // create an "insecure" HttpClient (trust all) - re-useable
-    private HttpClient createInsecureClient() throws Exception {
-        var trustAll = new TrustManager[] { new X509TrustManager() {
-            public void checkClientTrusted(X509Certificate[] certs, String authType) {
-            }
-
-            public void checkServerTrusted(X509Certificate[] certs, String authType) {
-            }
-
-            public X509Certificate[] getAcceptedIssuers() {
-                return new X509Certificate[0];
-            }
-        } };
-        var sslContext = SSLContext.getInstance("TLS");
-        sslContext.init(null, trustAll, new SecureRandom());
-        // hostname verifier that accepts any host
-        var sslParams = new SSLParameters();
-        var client = HttpClient.newBuilder().sslContext(sslContext).sslParameters(sslParams)
-                .connectTimeout(Duration.ofSeconds(10)).followRedirects(HttpClient.Redirect.NORMAL)
-                // no direct API for hostname verifier, but Java 11+ uses the SSLParameters
-                .build();
-        return client;
     }
 
     public Map<String, List<String>> fetch(String url) throws Exception {
-        return fetch(url, secureClient, true, "HEAD", true);
+        return fetch(url, true);
     }
 
     public Map<String, List<String>> fetch(String url, boolean addBasicAuthentication) throws Exception {
-        return fetchWithSslFallback(url, addBasicAuthentication, "HEAD", true);
+        return fetcher.headOrGet(url, authorization(addBasicAuthentication)).headerMap();
     }
 
     public Map<String, List<String>> doGet(String url) throws Exception {
-        return fetch(url, secureClient, true, "GET", false);
+        return doGet(url, true);
     }
 
     public Map<String, List<String>> doGet(String url, boolean addBasicAuthentication) throws Exception {
-        return fetchWithSslFallback(url, addBasicAuthentication, "GET", false);
+        return send("GET", url, addBasicAuthentication);
     }
 
     public Map<String, List<String>> doHead(String url) throws Exception {
-        return fetch(url, secureClient, true, "HEAD", false);
+        return doHead(url, true);
     }
 
     public Map<String, List<String>> doHead(String url, boolean addBasicAuthentication) throws Exception {
-        return fetchWithSslFallback(url, addBasicAuthentication, "HEAD", false);
+        return send("HEAD", url, addBasicAuthentication);
     }
 
-    private Map<String, List<String>> fetchWithSslFallback(String url, boolean addBasicAuthentication, String method,
-            boolean fallbackToGetOnMethodNotAllowed) throws Exception {
-        var uri = URI.create(url);
-        var host = uri.getHost();
-
-        // fast path: if we already know this host needed insecure mode, use insecure
-        // client directly
-        if (insecureHostCache.getOrDefault(host, false)) {
-            return HeadersUtil.convertKeyToLowercase(
-                    fetch(url, createInsecureClient(), addBasicAuthentication, method, fallbackToGetOnMethodNotAllowed));
-        }
-
-        // try secure client first
-        try {
-            return HeadersUtil.convertKeyToLowercase(
-                    fetch(url, secureClient, addBasicAuthentication, method, fallbackToGetOnMethodNotAllowed));
-        } catch (Exception e) {
-            // detect PKIX / SSL handshake exceptions - fallback only on those
-            Throwable cause = e;
-            var isSslProblem = false;
-            while (cause != null) {
-                var cls = cause.getClass().getName();
-                if (cls.contains("SSLHandshakeException") || cls.contains("SSLPeerUnverifiedException")
-                        || (cause.getMessage() != null && cause.getMessage().contains("PKIX"))) {
-                    isSslProblem = true;
-                    break;
-                }
-                cause = cause.getCause();
-            }
-            if (!isSslProblem)
-                throw e; // some other real error - bubble up
-
-            // cache host as requiring insecure mode
-            insecureHostCache.put(host, true);
-            return HeadersUtil.convertKeyToLowercase(
-                    fetch(url, createInsecureClient(), addBasicAuthentication, method, fallbackToGetOnMethodNotAllowed));
-        }
+    private Map<String, List<String>> send(String method, String url, boolean addBasicAuthentication)
+            throws IOException {
+        return fetcher.send(method, url, authorization(addBasicAuthentication)).headerMap();
     }
 
-    private Map<String, List<String>> fetch(String url, HttpClient client, boolean addBasicAuthentication, String method,
-            boolean fallbackToGetOnMethodNotAllowed) throws Exception {
-        var req = createHttpRequest(url, method, addBasicAuthentication);
-        HttpResponse<String> resp = client.send(req, HttpResponse.BodyHandlers.ofString());
-
-        var statusCode = resp.statusCode();
-        if (statusCode == 405 && fallbackToGetOnMethodNotAllowed) {
-            req = createHttpRequest(url, "GET", addBasicAuthentication);
-            resp = client.send(req, HttpResponse.BodyHandlers.ofString());
-        }
-
-        statusCode = resp.statusCode();
-
-        Map<String, List<String>> headers = new HashMap<String, List<String>>();
-
-        headers.put("http-status-code", Collections.singletonList(String.valueOf(statusCode)));
-        headers.putAll(resp.headers().map());
-
-        return headers;
-    }
-
-    private HttpRequest createHttpRequest(String url, String method, boolean addBasicAuthentication) {
-        var uri = URI.create(url);
-        var builder = HttpRequest.newBuilder(uri);
-
-        headers.forEach((k, v) -> {
-
-            if (!(k.equals("Authorization") && !addBasicAuthentication)) {
-                builder.header(k, v);
-            }
-
-        });
-
-        // Web Bot Auth: a fresh signature per request (the 405 fallback rebuilds the request too)
-        if (signer != null) {
-            signer.headers(uri).forEach(builder::header);
-        }
-
-        return builder.timeout(Duration.ofSeconds(20)).method(method, BodyPublishers.noBody()).build();
+    private Map<String, String> authorization(boolean addBasicAuthentication) {
+        return authorization != null && addBasicAuthentication ? Map.of("Authorization", authorization) : Map.of();
     }
 }
