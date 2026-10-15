@@ -15,6 +15,7 @@
  */
 package com.thirtysevenaudits.auditor.aws;
 
+import java.net.URI;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -155,6 +156,31 @@ public abstract class AbstractLambdaAuditor implements RequestHandler<Request, R
             blockedBy = e;
             throw e;
         }
+    }
+
+    /**
+     * Same as {@link #ensureNotBlocked(String, int, String)} for the Playwright response of navigating to
+     * {@code url}, which also catches a navigation that a redirect took to a bot wall (whose challenge page answers
+     * HTTP 200). A {@code null} navigation (same-document) is not a refusal.
+     */
+    protected void ensureNotBlocked(String url, com.microsoft.playwright.Response navigation) {
+        if (navigation == null) {
+            return;
+        }
+        URI landed;
+        try {
+            landed = URI.create(navigation.url());
+        } catch (IllegalArgumentException e) {
+            landed = null;
+        }
+        if (SiteBlockedException.isBotWall(landed)) {
+            com.microsoft.playwright.Request redirect = navigation.request().redirectedFrom();
+            int statusCode = redirect != null && redirect.response() != null ? redirect.response().status()
+                    : navigation.status();
+            blockedBy = SiteBlockedException.botWall(url, statusCode, landed);
+            throw blockedBy;
+        }
+        ensureNotBlocked(url, navigation.status(), navigation.headers().get(SiteBlockedException.HEADER_CF_MITIGATED));
     }
 
     /**
