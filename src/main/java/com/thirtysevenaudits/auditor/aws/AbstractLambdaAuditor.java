@@ -49,8 +49,9 @@ public abstract class AbstractLambdaAuditor implements RequestHandler<Request, R
 
     protected final Logger logger = LoggerFactory.getLogger(getClass());
 
-    // Set by ensureNotBlocked for the run in progress; a Lambda instance handles one request at a time.
-    private SiteBlockedException blockedBy;
+    // Set by ensureNotBlocked, or by an httpFetcher() request redirected to a bot wall (possibly from a worker
+    // thread), for the run in progress; a Lambda instance handles one request at a time.
+    private volatile SiteBlockedException blockedBy;
 
     public String getId() {
         return this.getClass().getName();
@@ -85,7 +86,7 @@ public abstract class AbstractLambdaAuditor implements RequestHandler<Request, R
      */
     protected HttpFetcher httpFetcher(String auditedUrl, BasicAuth basicAuth) {
         return HttpFetcher.builder(getUserAgent()).auditedUrl(auditedUrl).basicAuth(basicAuth)
-                .signer(WebBotAuthSigner.defaultSigner().orElse(null)).build();
+                .signer(WebBotAuthSigner.defaultSigner().orElse(null)).onBlocked(e -> blockedBy = e).build();
     }
 
     public Auditor getAuditor() {

@@ -38,6 +38,7 @@ import com.sun.net.httpserver.Headers;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import com.thirtysevenaudits.auditor.BasicAuth;
+import com.thirtysevenaudits.auditor.SiteBlockedException;
 import com.thirtysevenaudits.crawler.WebBotAuthSigner;
 import com.thirtysevenaudits.crawler.WebBotAuthSignerTest;
 
@@ -65,6 +66,14 @@ class HttpFetcherTest {
         httpServer.createContext("/redirect", exchange -> {
             record(exchange);
             exchange.getResponseHeaders().add("Location", "/ok");
+            exchange.sendResponseHeaders(302, -1);
+            exchange.close();
+        });
+        httpServer.createContext("/walled", exchange -> {
+            record(exchange);
+            // Radware's real Location: an unencoded space and parentheses in the query (the user agent).
+            exchange.getResponseHeaders().add("Location", "http://validate.perfdrive.com/c77b/?ssa=1"
+                    + "&sst=37AuditsBot/1.0 (+https://www.37audits.com/bot)&ssu=");
             exchange.sendResponseHeaders(302, -1);
             exchange.close();
         });
@@ -109,6 +118,33 @@ class HttpFetcherTest {
         assertThat(response.headers()).containsKey("content-type");
         assertThat(response.headerMap().get(FetchResponse.HTTP_STATUS_CODE)).containsExactly("200");
         assertThat(receivedHeaders.get(0).getFirst("User-Agent")).isEqualTo("test-agent");
+    }
+
+    @Test
+    void redirectToABotWall_throwsBlockedWithoutFollowingIt() {
+        List<SiteBlockedException> reported = new CopyOnWriteArrayList<>();
+        HttpFetcher fetcher = HttpFetcher.builder("test-agent").onBlocked(reported::add).build();
+
+        assertThatThrownBy(() -> fetcher.get(localhost + "/walled")).isInstanceOf(SiteBlockedException.class)
+                .hasMessage("The site redirected 37AuditsBot to a bot challenge (validate.perfdrive.com) instead "
+                        + "of answering (HTTP 302).")
+                .satisfies(e -> {
+                    SiteBlockedException blocked = (SiteBlockedException) e;
+                    assertThat(blocked.url()).isEqualTo(localhost + "/walled");
+                    assertThat(blocked.statusCode()).isEqualTo(302);
+                    assertThat(blocked.challenge()).isTrue();
+                    assertThat(reported).containsExactly(blocked);
+                });
+    }
+
+    @Test
+    void onBlocked_survivesToBuilder() {
+        List<SiteBlockedException> reported = new CopyOnWriteArrayList<>();
+        HttpFetcher fetcher = HttpFetcher.builder("test-agent").onBlocked(reported::add).build().toBuilder()
+                .maxBodyBytes(0).build();
+
+        assertThatThrownBy(() -> fetcher.head(localhost + "/walled")).isInstanceOf(SiteBlockedException.class);
+        assertThat(reported).hasSize(1);
     }
 
     @Test

@@ -15,6 +15,7 @@
  */
 package com.thirtysevenaudits.auditor;
 
+import java.net.URI;
 import java.util.List;
 import java.util.Map;
 
@@ -37,6 +38,12 @@ public class SiteBlockedException extends RuntimeException {
     /** Key under which {@code HeadersCrawler} reports the response status code. */
     private static final String HEADER_HTTP_STATUS_CODE = "http-status-code";
 
+    /**
+     * Hosts of the bot walls sites redirect a suspected bot to, matched with their subdomains: Radware Bot Manager
+     * (formerly ShieldSquare) and DataDome.
+     */
+    private static final List<String> BOT_WALL_HOSTS = List.of("perfdrive.com", "captcha-delivery.com");
+
     private static final long serialVersionUID = 1L;
 
     private final String url;
@@ -44,7 +51,11 @@ public class SiteBlockedException extends RuntimeException {
     private final boolean challenge;
 
     public SiteBlockedException(String url, int statusCode, boolean challenge) {
-        super(describe(statusCode, challenge));
+        this(url, statusCode, challenge, describe(statusCode, challenge));
+    }
+
+    private SiteBlockedException(String url, int statusCode, boolean challenge, String message) {
+        super(message);
         this.url = url;
         this.statusCode = statusCode;
         this.challenge = challenge;
@@ -108,6 +119,26 @@ public class SiteBlockedException extends RuntimeException {
         }
 
         throwIfBlocked(url, statusCode, first(headers, HEADER_CF_MITIGATED));
+    }
+
+    /** Whether {@code uri} points at a bot wall (see {@link #BOT_WALL_HOSTS}) rather than at the site. */
+    public static boolean isBotWall(URI uri) {
+        String host = uri == null ? null : uri.getHost();
+        if (host == null) {
+            return false;
+        }
+
+        String lowerHost = host.toLowerCase();
+        return BOT_WALL_HOSTS.stream().anyMatch(wall -> lowerHost.equals(wall) || lowerHost.endsWith("." + wall));
+    }
+
+    /**
+     * The refusal for a request to {@code url} that the site answered with a redirect ({@code statusCode}) to the
+     * bot wall at {@code wall}.
+     */
+    public static SiteBlockedException botWall(String url, int statusCode, URI wall) {
+        return new SiteBlockedException(url, statusCode, true, "The site redirected 37AuditsBot to a bot challenge ("
+                + wall.getHost() + ") instead of answering (HTTP " + statusCode + ").");
     }
 
     private static boolean isChallenge(String cfMitigated) {

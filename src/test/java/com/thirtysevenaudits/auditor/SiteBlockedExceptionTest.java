@@ -19,6 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.net.URI;
 import java.util.List;
 import java.util.Map;
 
@@ -27,6 +28,21 @@ import org.junit.jupiter.api.Test;
 class SiteBlockedExceptionTest {
 
     private static final String URL = "https://example.com/";
+
+    @Test
+    void botWallHostsAndTheirSubdomainsAreBotWalls() {
+        assertThat(SiteBlockedException.isBotWall(URI.create("http://validate.perfdrive.com/x/?ssa=1"))).isTrue();
+        assertThat(SiteBlockedException.isBotWall(URI.create("https://geo.Captcha-Delivery.com/captcha/"))).isTrue();
+        assertThat(SiteBlockedException.isBotWall(URI.create("https://perfdrive.com/"))).isTrue();
+    }
+
+    @Test
+    void otherHostsAreNotBotWalls() {
+        assertThat(SiteBlockedException.isBotWall(URI.create("https://telmex.com/"))).isFalse();
+        assertThat(SiteBlockedException.isBotWall(URI.create("https://notperfdrive.com/"))).isFalse();
+        assertThat(SiteBlockedException.isBotWall(URI.create("/relative"))).isFalse();
+        assertThat(SiteBlockedException.isBotWall(null)).isFalse();
+    }
 
     @Test
     void forbiddenAndRateLimitedResponsesAreBlocks() {
