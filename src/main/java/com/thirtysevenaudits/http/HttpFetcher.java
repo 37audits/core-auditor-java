@@ -46,6 +46,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Flow;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Consumer;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.InflaterInputStream;
 
@@ -54,6 +55,7 @@ import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
 
 import com.thirtysevenaudits.auditor.BasicAuth;
+import com.thirtysevenaudits.auditor.SiteBlockedException;
 import com.thirtysevenaudits.crawler.WebBotAuthSigner;
 
 /**
@@ -151,7 +153,16 @@ public final class HttpFetcher {
                         exchange.version, exchange.elapsed, exchange.truncated);
             }
 
-            current = current.resolve(location.trim().replace(" ", "%20"));
+            URI next = current.resolve(location.trim().replace(" ", "%20"));
+            if (SiteBlockedException.isBotWall(next)) {
+                // Following would audit the wall's challenge page instead of the site.
+                SiteBlockedException blocked = SiteBlockedException.botWall(requested.toString(), status, next);
+                if (settings.onBlocked != null) {
+                    settings.onBlocked.accept(blocked);
+                }
+                throw blocked;
+            }
+            current = next;
             if (status == 303 && !"HEAD".equals(currentMethod)) {
                 currentMethod = "GET";
             }
@@ -420,6 +431,7 @@ public final class HttpFetcher {
         private HttpClient.Version version;
         private int maxBodyBytes = DEFAULT_MAX_BODY_BYTES;
         private final Map<String, String> headers = new HashMap<>();
+        private Consumer<SiteBlockedException> onBlocked;
 
         private Builder(String userAgent) {
             this.userAgent = userAgent;
@@ -491,6 +503,15 @@ public final class HttpFetcher {
             return this;
         }
 
+        /**
+         * Called, before the {@link SiteBlockedException} is thrown, when a request is redirected to a bot wall, so
+         * the auditor learns of the block even when the exception is swallowed on the way up.
+         */
+        public Builder onBlocked(Consumer<SiteBlockedException> onBlocked) {
+            this.onBlocked = onBlocked;
+            return this;
+        }
+
         public HttpFetcher build() {
             return new HttpFetcher(this);
         }
@@ -507,6 +528,7 @@ public final class HttpFetcher {
             copy.version = version;
             copy.maxBodyBytes = maxBodyBytes;
             copy.headers.putAll(headers);
+            copy.onBlocked = onBlocked;
             return copy;
         }
     }

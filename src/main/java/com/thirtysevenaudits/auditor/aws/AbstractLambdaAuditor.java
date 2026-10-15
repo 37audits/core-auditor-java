@@ -15,6 +15,7 @@
  */
 package com.thirtysevenaudits.auditor.aws;
 
+import java.net.URI;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -49,8 +50,9 @@ public abstract class AbstractLambdaAuditor implements RequestHandler<Request, R
 
     protected final Logger logger = LoggerFactory.getLogger(getClass());
 
-    // Set by ensureNotBlocked for the run in progress; a Lambda instance handles one request at a time.
-    private SiteBlockedException blockedBy;
+    // Set by ensureNotBlocked, or by an httpFetcher() request redirected to a bot wall (possibly from a worker
+    // thread), for the run in progress; a Lambda instance handles one request at a time.
+    private volatile SiteBlockedException blockedBy;
 
     public String getId() {
         return this.getClass().getName();
@@ -85,7 +87,7 @@ public abstract class AbstractLambdaAuditor implements RequestHandler<Request, R
      */
     protected HttpFetcher httpFetcher(String auditedUrl, BasicAuth basicAuth) {
         return HttpFetcher.builder(getUserAgent()).auditedUrl(auditedUrl).basicAuth(basicAuth)
-                .signer(WebBotAuthSigner.defaultSigner().orElse(null)).build();
+                .signer(WebBotAuthSigner.defaultSigner().orElse(null)).onBlocked(e -> blockedBy = e).build();
     }
 
     public Auditor getAuditor() {
@@ -154,6 +156,31 @@ public abstract class AbstractLambdaAuditor implements RequestHandler<Request, R
             blockedBy = e;
             throw e;
         }
+    }
+
+    /**
+     * Same as {@link #ensureNotBlocked(String, int, String)} for the Playwright response of navigating to
+     * {@code url}, which also catches a navigation that a redirect took to a bot wall (whose challenge page answers
+     * HTTP 200). A {@code null} navigation (same-document) is not a refusal.
+     */
+    protected void ensureNotBlocked(String url, com.microsoft.playwright.Response navigation) {
+        if (navigation == null) {
+            return;
+        }
+        URI landed;
+        try {
+            landed = URI.create(navigation.url());
+        } catch (IllegalArgumentException e) {
+            landed = null;
+        }
+        if (SiteBlockedException.isBotWall(landed)) {
+            com.microsoft.playwright.Request redirect = navigation.request().redirectedFrom();
+            int statusCode = redirect != null && redirect.response() != null ? redirect.response().status()
+                    : navigation.status();
+            blockedBy = SiteBlockedException.botWall(url, statusCode, landed);
+            throw blockedBy;
+        }
+        ensureNotBlocked(url, navigation.status(), navigation.headers().get(SiteBlockedException.HEADER_CF_MITIGATED));
     }
 
     /**

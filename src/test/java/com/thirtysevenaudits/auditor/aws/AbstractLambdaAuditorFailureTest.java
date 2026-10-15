@@ -17,11 +17,15 @@ package com.thirtysevenaudits.auditor.aws;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.net.InetSocketAddress;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Supplier;
 
 import org.junit.jupiter.api.Test;
+
+import com.sun.net.httpserver.HttpServer;
 
 import com.thirtysevenaudits.auditor.BasicAuth;
 import com.thirtysevenaudits.auditor.Check;
@@ -29,6 +33,7 @@ import com.thirtysevenaudits.auditor.CheckStatus;
 import com.thirtysevenaudits.auditor.Request;
 import com.thirtysevenaudits.auditor.Response;
 import com.thirtysevenaudits.auditor.SiteBlockedException;
+import com.thirtysevenaudits.http.HttpFetcher;
 
 class AbstractLambdaAuditorFailureTest {
 
@@ -128,6 +133,43 @@ class AbstractLambdaAuditorFailureTest {
 
         assertThat(response.message()).isEqualTo("The site blocked 37AuditsBot's request (HTTP 403).");
         assertThat(response.checks()).hasSize(1);
+    }
+
+    @Test
+    void botWallRedirectSwallowedOnAWorkerThreadStillAnswersWithTheBlockedResponse() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/asset.png", exchange -> {
+            exchange.getResponseHeaders().add("Location", "http://validate.perfdrive.com/c77b/?ssa=1");
+            exchange.sendResponseHeaders(302, -1);
+            exchange.close();
+        });
+        server.start();
+        try {
+            String asset = "http://localhost:" + server.getAddress().getPort() + "/asset.png";
+            FailingAuditor auditor = new FailingAuditor(null);
+            auditor.behavior = () -> {
+                HttpFetcher fetcher = auditor.httpFetcher(URL, null);
+                // Like the Cache auditor's visitors: a resource fetched on a pool thread, its failure kept as a check.
+                CompletableFuture.runAsync(() -> {
+                    try {
+                        fetcher.head(asset);
+                    } catch (Exception e) {
+                        // swallowed
+                    }
+                }).join();
+                return new Response(null, CheckStatus.WARNING, "audited the challenge page", List.of());
+            };
+
+            Response response = auditor.handleRequest(new Request("id", URL, List.of(), null), null);
+
+            assertThat(response.status()).isEqualTo(CheckStatus.ERROR);
+            assertThat(response.message()).isEqualTo("The site redirected 37AuditsBot to a bot challenge "
+                    + "(validate.perfdrive.com) instead of answering (HTTP 302).");
+            assertThat(response.checks().get(0).code().id()).isEqualTo("37A-FailingAuditor-590");
+            assertThat(response.checks().get(0).data()).containsEntry("challenge", true);
+        } finally {
+            server.stop(0);
+        }
     }
 
     @Test
