@@ -15,7 +15,20 @@
  */
 package com.thirtysevenaudits.auditor;
 
-public record Software(String vendor, String product, String version) {
+import java.time.Instant;
+
+/**
+ * One entry of the project's software stack.
+ *
+ * <p>{@code updatedAt} is when the entry was last entered, edited or confirmed
+ * on the platform. It is {@code null} when the caller does not send it.
+ */
+public record Software(String vendor, String product, String version, Instant updatedAt) {
+
+    /** Backward-compatible constructor for callers predating {@code updatedAt}. */
+    public Software(String vendor, String product, String version) {
+        this(vendor, product, version, null);
+    }
 
     @Override
     public String toString() {
