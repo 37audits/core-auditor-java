@@ -16,11 +16,17 @@
 package com.thirtysevenaudits.http;
 
 import java.net.URI;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import com.microsoft.playwright.Browser;
 import com.microsoft.playwright.BrowserContext;
+import com.microsoft.playwright.BrowserType;
+import com.microsoft.playwright.Playwright;
+import com.microsoft.playwright.PlaywrightException;
 import com.microsoft.playwright.Request;
 import com.microsoft.playwright.Route;
 import com.microsoft.playwright.options.HttpCredentials;
@@ -33,7 +39,59 @@ import com.thirtysevenaudits.crawler.WebBotAuthSigner;
  */
 public final class PlaywrightSupport {
 
+    /** Where the Lambda layer installs Chromium. */
+    private static final Path LAMBDA_CHROMIUM = Path.of("/opt/bin/chromium");
+
+    private static volatile Boolean chromiumAvailable;
+
     private PlaywrightSupport() {
+    }
+
+    /**
+     * The Chromium to launch: {@code CHROMIUM_PATH} when set, the Lambda layer binary when present, otherwise
+     * {@code null} so Playwright uses its own download (local runs and CI).
+     */
+    public static Path chromiumExecutable() {
+        String configured = System.getenv("CHROMIUM_PATH");
+        if (configured != null && !configured.isBlank()) {
+            return Path.of(configured);
+        }
+        return Files.exists(LAMBDA_CHROMIUM) ? LAMBDA_CHROMIUM : null;
+    }
+
+    /**
+     * Headless launch options with the sandbox off and {@link #chromiumExecutable()} applied, plus {@code args}.
+     */
+    public static BrowserType.LaunchOptions launchOptions(List<String> args) {
+        BrowserType.LaunchOptions options = new BrowserType.LaunchOptions().setHeadless(true).setArgs(args)
+                .setChromiumSandbox(false);
+        Path executable = chromiumExecutable();
+        if (executable != null) {
+            options.setExecutablePath(executable);
+        }
+        return options;
+    }
+
+    /**
+     * Whether a headless Chromium can be launched here. Tried once per JVM; meant for gating browser-backed tests
+     * with {@code @EnabledIf("com.thirtysevenaudits.http.PlaywrightSupport#chromiumAvailable")}.
+     */
+    public static boolean chromiumAvailable() {
+        Boolean available = chromiumAvailable;
+        if (available == null) {
+            available = launches();
+            chromiumAvailable = available;
+        }
+        return available;
+    }
+
+    private static boolean launches() {
+        try (Playwright playwright = Playwright.create();
+                Browser browser = playwright.chromium().launch(launchOptions(List.of("--no-sandbox")))) {
+            return browser.isConnected();
+        } catch (PlaywrightException | NoClassDefFoundError e) {
+            return false;
+        }
     }
 
     /**
