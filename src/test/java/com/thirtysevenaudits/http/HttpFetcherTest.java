@@ -88,6 +88,24 @@ class HttpFetcherTest {
         httpServer.createContext("/latin1", exchange -> respond(exchange, 200, "text/html",
                 "<html><head><meta charset=\"ISO-8859-1\"></head><body>café</body></html>"
                         .getBytes(StandardCharsets.ISO_8859_1)));
+        httpServer.createContext("/echo", exchange -> {
+            byte[] received = exchange.getRequestBody().readAllBytes();
+            respond(exchange, 200, "text/plain", received);
+        });
+        httpServer.createContext("/post-redirect", exchange -> {
+            record(exchange);
+            exchange.getRequestBody().readAllBytes();
+            exchange.getResponseHeaders().add("Location", "/echo");
+            exchange.sendResponseHeaders(302, -1);
+            exchange.close();
+        });
+        httpServer.createContext("/post-redirect-307", exchange -> {
+            record(exchange);
+            exchange.getRequestBody().readAllBytes();
+            exchange.getResponseHeaders().add("Location", "/echo");
+            exchange.sendResponseHeaders(307, -1);
+            exchange.close();
+        });
         httpServer.createContext("/big", exchange -> respond(exchange, 200, "text/plain", new byte[100_000]));
         httpServer.createContext("/slow", exchange -> {
             try {
@@ -223,6 +241,34 @@ class HttpFetcherTest {
         assertThat(response.statusCode()).isEqualTo(302);
         assertThat(response.header("location")).isEqualTo("/ok");
         assertThat(response.uri().getPath()).isEqualTo("/redirect");
+    }
+
+    @Test
+    void send_postsTheBodyWithTheGivenContentType() throws Exception {
+        FetchResponse response = fetcher().send("POST", localhost + "/echo", Map.of("content-type", "text/xml"),
+                bytes("<methodCall/>"));
+
+        assertThat(receivedMethods).containsExactly("POST");
+        assertThat(receivedHeaders.get(0).getFirst("Content-Type")).isEqualTo("text/xml");
+        assertThat(receivedHeaders.get(0).getFirst("User-Agent")).isEqualTo("test-agent");
+        assertThat(response.text()).isEqualTo("<methodCall/>");
+    }
+
+    @Test
+    void send_dropsTheBodyWhenA302TurnsThePostIntoAGet() throws Exception {
+        FetchResponse response = fetcher().send("POST", localhost + "/post-redirect", Map.of(), bytes("payload"));
+
+        assertThat(receivedMethods).containsExactly("POST", "GET");
+        assertThat(response.text()).isEmpty();
+    }
+
+    @Test
+    void send_resendsTheBodyOnA307() throws Exception {
+        FetchResponse response = fetcher().send("POST", localhost + "/post-redirect-307", Map.of(),
+                bytes("payload"));
+
+        assertThat(receivedMethods).containsExactly("POST", "POST");
+        assertThat(response.text()).isEqualTo("payload");
     }
 
     @Test

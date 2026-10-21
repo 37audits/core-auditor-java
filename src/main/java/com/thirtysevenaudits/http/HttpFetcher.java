@@ -138,12 +138,27 @@ public final class HttpFetcher {
      *             ({@link HttpTimeoutException}).
      */
     public FetchResponse send(String method, String url, Map<String, String> extraHeaders) throws IOException {
+        return send(method, url, extraHeaders, null);
+    }
+
+    /**
+     * Sends {@code method} to {@code url} with {@code body} (for example a {@code POST} of an XML-RPC call; set
+     * {@code content-type} in {@code extraHeaders}). A {@code null} body sends none. A redirect that turns the request
+     * into a {@code GET} (303, or 301/302 after a {@code POST}) drops the body; 307 and 308 resend it.
+     *
+     * @throws IOException
+     *             on a network error, a TLS error the insecure retry could not get past, or a timeout
+     *             ({@link HttpTimeoutException}).
+     */
+    public FetchResponse send(String method, String url, Map<String, String> extraHeaders, byte[] body)
+            throws IOException {
         URI requested = URI.create(url);
         URI current = requested;
         String currentMethod = method;
+        byte[] currentBody = body;
 
         for (int hop = 0;; hop++) {
-            Exchange exchange = exchange(currentMethod, current, extraHeaders);
+            Exchange exchange = exchange(currentMethod, current, extraHeaders, currentBody);
             int status = exchange.statusCode;
             String location = first(exchange.headers, "location");
 
@@ -163,31 +178,34 @@ public final class HttpFetcher {
                 throw blocked;
             }
             current = next;
-            if (status == 303 && !"HEAD".equals(currentMethod)) {
+            if ((status == 303 && !"HEAD".equals(currentMethod))
+                    || ((status == 301 || status == 302) && "POST".equals(currentMethod))) {
                 currentMethod = "GET";
+                currentBody = null;
             }
         }
     }
 
-    private Exchange exchange(String method, URI uri, Map<String, String> extraHeaders) throws IOException {
+    private Exchange exchange(String method, URI uri, Map<String, String> extraHeaders, byte[] body)
+            throws IOException {
         String host = uri.getHost();
         if (host != null && insecureHosts.contains(host)) {
-            return exchange(insecureClient(), method, uri, extraHeaders);
+            return exchange(insecureClient(), method, uri, extraHeaders, body);
         }
         try {
-            return exchange(secureClient, method, uri, extraHeaders);
+            return exchange(secureClient, method, uri, extraHeaders, body);
         } catch (IOException e) {
             if (host == null || !settings.tlsFallback || !isTlsProblem(e)) {
                 throw e;
             }
             insecureHosts.add(host);
-            return exchange(insecureClient(), method, uri, extraHeaders);
+            return exchange(insecureClient(), method, uri, extraHeaders, body);
         }
     }
 
-    private Exchange exchange(HttpClient client, String method, URI uri, Map<String, String> extraHeaders)
-            throws IOException {
-        HttpRequest request = request(method, uri, extraHeaders);
+    private Exchange exchange(HttpClient client, String method, URI uri, Map<String, String> extraHeaders,
+            byte[] requestBody) throws IOException {
+        HttpRequest request = request(method, uri, extraHeaders, requestBody);
         long[] headersAt = new long[1];
         long start = System.nanoTime();
 
@@ -226,7 +244,7 @@ public final class HttpFetcher {
                 Duration.ofNanos(headersAt[0] - start), capped.truncated);
     }
 
-    private HttpRequest request(String method, URI uri, Map<String, String> extraHeaders) {
+    private HttpRequest request(String method, URI uri, Map<String, String> extraHeaders, byte[] body) {
         Map<String, String> headers = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         headers.put("User-Agent", settings.userAgent);
         headers.put("Accept-Encoding", "gzip, deflate");
@@ -244,7 +262,7 @@ public final class HttpFetcher {
         }
 
         HttpRequest.Builder builder = HttpRequest.newBuilder(uri).timeout(settings.requestTimeout)
-                .method(method, BodyPublishers.noBody());
+                .method(method, body == null ? BodyPublishers.noBody() : BodyPublishers.ofByteArray(body));
         headers.forEach(builder::header);
         return builder.build();
     }
