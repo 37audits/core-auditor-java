@@ -56,4 +56,52 @@ class SoftwareTest {
         assertThat(software).hasToString("Liferay DXP 7.4");
     }
 
+    @Test
+    void serializerReadsEcosystemFromStackEntry() {
+        Request request = new BasePojoSerializer().fromJson(
+                "{\"id\":\"1\",\"url\":\"http://example.com\",\"stack\":[{\"vendor\":\"org.apache.logging.log4j\","
+                        + "\"product\":\"log4j-core\",\"version\":\"2.14.1\",\"ecosystem\":\"maven\"}]}",
+                Request.class);
+
+        assertThat(request.stack()).containsExactly(
+                new Software("org.apache.logging.log4j", "log4j-core", "2.14.1", null, Software.MAVEN));
+    }
+
+    @Test
+    void entryWithoutEcosystemIsAPlatform() {
+        Software software = new Software("Liferay", "DXP", "7.4", Instant.parse("2026-06-16T10:15:30Z"));
+
+        assertThat(software.ecosystem()).isNull();
+        assertThat(software.isPlatform()).isTrue();
+        assertThat(software.isEcosystem(Software.MAVEN)).isFalse();
+        assertThat(software.packageName()).isNull();
+        assertThat(software).hasToString("Liferay DXP 7.4");
+    }
+
+    @Test
+    void blankEcosystemIsAPlatform() {
+        assertThat(new Software("Liferay", "DXP", "7.4", null, " ").isPlatform()).isTrue();
+    }
+
+    @Test
+    void mavenDependencyJoinsGroupAndArtifactWithAColon() {
+        Software software = new Software("org.apache.logging.log4j", "log4j-core", "2.14.1", null, "Maven");
+
+        assertThat(software.isPlatform()).isFalse();
+        assertThat(software.isEcosystem(Software.MAVEN)).isTrue();
+        assertThat(software.packageName()).isEqualTo("org.apache.logging.log4j:log4j-core");
+        assertThat(software).hasToString("org.apache.logging.log4j:log4j-core@2.14.1");
+    }
+
+    @Test
+    void npmDependencyJoinsScopeAndNameWithASlash() {
+        Software scoped = new Software("@next", "font", "14.0.0", null, Software.NPM);
+        Software unscoped = new Software(null, "next", "15.5.4", null, Software.NPM);
+
+        assertThat(scoped.packageName()).isEqualTo("@next/font");
+        assertThat(scoped).hasToString("@next/font@14.0.0");
+        assertThat(unscoped.packageName()).isEqualTo("next");
+        assertThat(unscoped).hasToString("next@15.5.4");
+    }
+
 }
