@@ -129,7 +129,8 @@ public abstract class AbstractLambdaAuditor implements RequestHandler<Request, R
 
     /**
      * Stops the audit when the response of the audited page is a refusal (HTTP 403, HTTP 429 or a Cloudflare
-     * challenge) rather than the page: throws {@link SiteBlockedException}, which {@link #handleRequest} answers
+     * challenge; the {@link FetchResponse} and Playwright overloads also catch a bot wall's challenge page, such as
+     * Imperva's, served with HTTP 200) rather than the page: throws {@link SiteBlockedException}, which {@link #handleRequest} answers
      * with the {@link #blocked(SiteBlockedException) blocked} response. Call it on the response of the audited URL
      * before reading it. The block is also remembered for the rest of the run, so the blocked response is returned
      * even when a catch-all in the auditor swallows the exception.
@@ -181,6 +182,14 @@ public abstract class AbstractLambdaAuditor implements RequestHandler<Request, R
             throw blockedBy;
         }
         ensureNotBlocked(url, navigation.status(), navigation.headers().get(SiteBlockedException.HEADER_CF_MITIGATED));
+        String body;
+        try {
+            body = navigation.text();
+        } catch (RuntimeException e) {
+            // A redirect or a later navigation can leave the body unavailable; that is not a refusal.
+            body = null;
+        }
+        ensureNotBotWallPage(url, navigation.status(), body);
     }
 
     /**
@@ -188,8 +197,19 @@ public abstract class AbstractLambdaAuditor implements RequestHandler<Request, R
      * response of the audited page only, not on probes of other paths or hosts.
      */
     protected void ensureNotBlocked(FetchResponse response) {
-        ensureNotBlocked(response.requestedUri().toString(), response.statusCode(),
-                response.header(SiteBlockedException.HEADER_CF_MITIGATED));
+        String url = response.requestedUri().toString();
+        ensureNotBlocked(url, response.statusCode(), response.header(SiteBlockedException.HEADER_CF_MITIGATED));
+        byte[] body = response.body();
+        int length = Math.min(body.length, SiteBlockedException.BOT_WALL_PAGE_SNIFF_CHARS);
+        ensureNotBotWallPage(url, response.statusCode(), new String(body, 0, length, response.charset()));
+    }
+
+    private void ensureNotBotWallPage(String url, int statusCode, String body) {
+        String vendor = SiteBlockedException.botWallVendor(body);
+        if (vendor != null) {
+            blockedBy = SiteBlockedException.botWallPage(url, statusCode, vendor);
+            throw blockedBy;
+        }
     }
 
     /**

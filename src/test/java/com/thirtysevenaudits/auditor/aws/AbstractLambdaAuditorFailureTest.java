@@ -18,6 +18,7 @@ package com.thirtysevenaudits.auditor.aws;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -167,6 +168,44 @@ class AbstractLambdaAuditorFailureTest {
                     + "(validate.perfdrive.com) instead of answering (HTTP 302).");
             assertThat(response.checks().get(0).code().id()).isEqualTo("37A-FailingAuditor-590");
             assertThat(response.checks().get(0).data()).containsEntry("challenge", true);
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void impervaChallengePageSwallowedByTheAuditorStillAnswersWithTheBlockedResponse() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/", exchange -> {
+            byte[] body = ("<html><body><iframe id=\"main-iframe\" src=\"/_Incapsula_Resource?SWUDNSAI=31\">"
+                    + "Request unsuccessful. Incapsula incident ID: 1-2</iframe></body></html>").getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "text/html");
+            exchange.getResponseHeaders().add("X-Iinfo", "58-31835694-0 0NNN RT(1792706102766 34)");
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+        try {
+            String page = "http://localhost:" + server.getAddress().getPort() + "/";
+            FailingAuditor auditor = new FailingAuditor(null);
+            auditor.behavior = () -> {
+                try {
+                    auditor.ensureNotBlocked(auditor.httpFetcher(page, null).get(page));
+                    return new Response(null, CheckStatus.SUCCESS, "audited the challenge page", List.of());
+                } catch (Exception e) {
+                    return new Response(null, CheckStatus.ERROR, "generic: " + e.getMessage(), null);
+                }
+            };
+
+            Response response = auditor.handleRequest(new Request("id", page, List.of(), null), null);
+
+            assertThat(response.status()).isEqualTo(CheckStatus.ERROR);
+            assertThat(response.message()).isEqualTo(
+                    "The site answered 37AuditsBot with a bot challenge (Imperva) instead of the page (HTTP 200).");
+            assertThat(response.checks().get(0).code().id()).isEqualTo("37A-FailingAuditor-590");
+            assertThat(response.checks().get(0).data()).containsEntry("httpStatusCode", 200)
+                    .containsEntry("challenge", true);
         } finally {
             server.stop(0);
         }
