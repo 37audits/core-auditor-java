@@ -29,6 +29,14 @@ class SiteBlockedExceptionTest {
 
     private static final String URL = "https://example.com/";
 
+    /** The page Imperva served www.tokiomarine.com.br's privacy policy with, HTTP 200. */
+    static final String IMPERVA_CHALLENGE = "<html style=\"height:100%\"><head><META NAME=\"ROBOTS\" CONTENT=\"NOINDEX, NOFOLLOW\">"
+            + "<script src=\"/gly-thould-and-Drum-Macduffe-with-gayne-the-Roya\" async></script></head>"
+            + "<body style=\"margin:0px;height:100%\"><iframe id=\"main-iframe\" src=\"/_Incapsula_Resource?"
+            + "SWUDNSAI=31&xinfo=17-877612-0&incident_id=1694000060140308914-4292708254220689&mth=GET\" "
+            + "frameborder=0 width=\"100%\" height=\"100%\">Request unsuccessful. Incapsula incident ID: "
+            + "1694000060140308914-4292708254220689</iframe></body></html>";
+
     @Test
     void botWallHostsAndTheirSubdomainsAreBotWalls() {
         assertThat(SiteBlockedException.isBotWall(URI.create("http://validate.perfdrive.com/x/?ssa=1"))).isTrue();
@@ -107,5 +115,39 @@ class SiteBlockedExceptionTest {
                 .doesNotThrowAnyException();
         assertThatCode(() -> SiteBlockedException.throwIfBlocked(URL, Map.of("http-status-code", List.of("200"))))
                 .doesNotThrowAnyException();
+    }
+
+    @Test
+    void impervaChallengePageIsABotWall() {
+        assertThat(SiteBlockedException.botWallVendor(IMPERVA_CHALLENGE)).isEqualTo("Imperva");
+        assertThat(SiteBlockedException.botWallVendor("<p>Request unsuccessful. Incapsula incident ID: 1-2</p>"))
+                .isEqualTo("Imperva");
+    }
+
+    @Test
+    void pageServedThroughImpervaIsNotABotWall() {
+        assertThat(SiteBlockedException.botWallVendor("<html><head><script src=\"/_Incapsula_Resource?"
+                + "SWJIYLWA=719d34d31c8e3a6e6fffd425f7e032f3\"></script></head><body>Privacy policy</body></html>"))
+                .isNull();
+        assertThat(SiteBlockedException.botWallVendor(null)).isNull();
+        assertThat(SiteBlockedException.botWallVendor("")).isNull();
+    }
+
+    @Test
+    void markerPastTheSniffedHeadIsIgnored() {
+        String page = "x".repeat(SiteBlockedException.BOT_WALL_PAGE_SNIFF_CHARS) + "Incapsula incident ID";
+
+        assertThat(SiteBlockedException.botWallVendor(page)).isNull();
+    }
+
+    @Test
+    void botWallPageCarriesUrlStatusAndVendor() {
+        SiteBlockedException e = SiteBlockedException.botWallPage(URL, 200, "Imperva");
+
+        assertThat(e.url()).isEqualTo(URL);
+        assertThat(e.statusCode()).isEqualTo(200);
+        assertThat(e.challenge()).isTrue();
+        assertThat(e.getMessage())
+                .isEqualTo("The site answered 37AuditsBot with a bot challenge (Imperva) instead of the page (HTTP 200).");
     }
 }

@@ -44,6 +44,18 @@ public class SiteBlockedException extends RuntimeException {
      */
     private static final List<String> BOT_WALL_HOSTS = List.of("perfdrive.com", "captcha-delivery.com");
 
+    /**
+     * Text that only appears on the challenge page a bot wall serves in place of the site, mapped to the wall's
+     * vendor. Imperva (Incapsula) answers HTTP 200 with a page that frames {@code /_Incapsula_Resource?SWUDNSAI=}
+     * and reads "Request unsuccessful. Incapsula incident ID"; {@code _Incapsula_Resource} alone is not a marker,
+     * because Imperva also injects {@code /_Incapsula_Resource?SWJIYLWA=} scripts into the pages it serves.
+     */
+    private static final Map<String, String> BOT_WALL_PAGE_MARKERS = Map.of("Incapsula incident ID", "Imperva",
+            "_Incapsula_Resource?SWUDNSAI=", "Imperva");
+
+    /** How much of a body {@link #botWallVendor(String)} looks at; challenge pages are about 1 KB. */
+    public static final int BOT_WALL_PAGE_SNIFF_CHARS = 4096;
+
     private static final long serialVersionUID = 1L;
 
     private final String url;
@@ -139,6 +151,29 @@ public class SiteBlockedException extends RuntimeException {
     public static SiteBlockedException botWall(String url, int statusCode, URI wall) {
         return new SiteBlockedException(url, statusCode, true, "The site redirected 37AuditsBot to a bot challenge ("
                 + wall.getHost() + ") instead of answering (HTTP " + statusCode + ").");
+    }
+
+    /**
+     * The vendor of the bot wall whose challenge page {@code body} is (see {@link #BOT_WALL_PAGE_MARKERS}), or
+     * {@code null} when it is not one. Only the first {@value #BOT_WALL_PAGE_SNIFF_CHARS} characters are read.
+     */
+    public static String botWallVendor(String body) {
+        if (body == null || body.isEmpty()) {
+            return null;
+        }
+
+        String head = body.length() > BOT_WALL_PAGE_SNIFF_CHARS ? body.substring(0, BOT_WALL_PAGE_SNIFF_CHARS) : body;
+        return BOT_WALL_PAGE_MARKERS.entrySet().stream().filter(marker -> head.contains(marker.getKey()))
+                .map(Map.Entry::getValue).findFirst().orElse(null);
+    }
+
+    /**
+     * The refusal for a request to {@code url} that the site answered ({@code statusCode}) with the challenge page
+     * of the bot wall from {@code vendor}.
+     */
+    public static SiteBlockedException botWallPage(String url, int statusCode, String vendor) {
+        return new SiteBlockedException(url, statusCode, true, "The site answered 37AuditsBot with a bot challenge ("
+                + vendor + ") instead of the page (HTTP " + statusCode + ").");
     }
 
     private static boolean isChallenge(String cfMitigated) {
