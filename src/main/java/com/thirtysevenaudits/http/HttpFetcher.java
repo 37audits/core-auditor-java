@@ -71,7 +71,8 @@ import com.thirtysevenaudits.crawler.WebBotAuthSigner;
  * <li>reads at most {@code maxBodyBytes} of the body (5 MB by default) and decodes {@code gzip} / {@code deflate}.</li>
  * </ul>
  * Redirects are followed by the fetcher itself (up to {@value #MAX_REDIRECTS}), so the headers above are
- * recomputed for each hop. Instances are immutable and thread-safe; create one per audit with
+ * recomputed for each hop. With {@link Builder#sameSiteRedirectsOnly(boolean)} a redirect off the audited site is
+ * returned instead of followed. Instances are immutable and thread-safe; create one per audit with
  * {@code AbstractLambdaAuditor.httpFetcher(url, basicAuth)} and reuse it for every request of the audit. Parse HTML
  * with jsoup: {@code Jsoup.parse(response.text(), response.uri().toString())}.
  */
@@ -169,6 +170,13 @@ public final class HttpFetcher {
             }
 
             URI next = current.resolve(location.trim().replace(" ", "%20"));
+            if (settings.sameSiteRedirectsOnly
+                    && !isSameSite(settings.auditedHost != null ? settings.auditedHost : requested.getHost(),
+                            next.getHost())) {
+                // An owner-verified host must not bounce the probes to a site nobody verified.
+                return new FetchResponse(status, requested, current, exchange.headers, exchange.body,
+                        exchange.version, exchange.elapsed, exchange.truncated);
+            }
             if (SiteBlockedException.isBotWall(next)) {
                 // Following would audit the wall's challenge page instead of the site.
                 SiteBlockedException blocked = SiteBlockedException.botWall(requested.toString(), status, next);
@@ -273,6 +281,24 @@ public final class HttpFetcher {
             return false;
         }
         return stripWww(host).equalsIgnoreCase(stripWww(settings.auditedHost));
+    }
+
+    /**
+     * Whether {@code host} belongs to the site of {@code auditedHost}: the same host, ignoring case and a leading
+     * {@code www.}, or a subdomain of it. A sibling ({@code shop.example.com} → {@code login.example.com}) or a parent
+     * domain is not: the audited host is all that is known to be verified. {@code false} when either is {@code null}.
+     */
+    public static boolean isSameSite(String auditedHost, String host) {
+        if (auditedHost == null || host == null) {
+            return false;
+        }
+        String site = stripWww(stripDot(auditedHost)).toLowerCase(Locale.ROOT);
+        String candidate = stripWww(stripDot(host)).toLowerCase(Locale.ROOT);
+        return candidate.equals(site) || candidate.endsWith("." + site);
+    }
+
+    private static String stripDot(String host) {
+        return host.endsWith(".") ? host.substring(0, host.length() - 1) : host;
     }
 
     private static String stripWww(String host) {
@@ -445,6 +471,7 @@ public final class HttpFetcher {
         private Duration connectTimeout = DEFAULT_CONNECT_TIMEOUT;
         private Duration requestTimeout = DEFAULT_REQUEST_TIMEOUT;
         private boolean followRedirects = true;
+        private boolean sameSiteRedirectsOnly;
         private boolean tlsFallback = true;
         private HttpClient.Version version;
         private int maxBodyBytes = DEFAULT_MAX_BODY_BYTES;
@@ -496,6 +523,17 @@ public final class HttpFetcher {
         }
 
         /**
+         * Follows a redirect only when it stays on the audited site (see {@link HttpFetcher#isSameSite}; the
+         * requested host when no {@link #auditedUrl audited URL} is set). A redirect elsewhere is returned as the
+         * response, its {@code Location} unfollowed. Auditors that probe a site (and so only run on owner-verified
+         * domains) turn it on, so a verified host cannot redirect them to someone else's site. Off by default.
+         */
+        public Builder sameSiteRedirectsOnly(boolean sameSiteRedirectsOnly) {
+            this.sameSiteRedirectsOnly = sameSiteRedirectsOnly;
+            return this;
+        }
+
+        /**
          * Whether a TLS handshake failure is retried without certificate validation (default {@code true}). Turn it
          * off when a valid certificate is part of what is audited (MTA-STS, for instance): the failure is then thrown.
          */
@@ -542,6 +580,7 @@ public final class HttpFetcher {
             copy.connectTimeout = connectTimeout;
             copy.requestTimeout = requestTimeout;
             copy.followRedirects = followRedirects;
+            copy.sameSiteRedirectsOnly = sameSiteRedirectsOnly;
             copy.tlsFallback = tlsFallback;
             copy.version = version;
             copy.maxBodyBytes = maxBodyBytes;
