@@ -55,6 +55,10 @@ public abstract class AbstractLambdaAuditor implements RequestHandler<Request, R
     // thread), for the run in progress; a Lambda instance handles one request at a time.
     private volatile SiteBlockedException blockedBy;
 
+    // The custom user agent for the run in progress (null = use the bot agent), bound by bindRequest.
+    // Like blockedBy, it is per-invocation state reset at the start of every handleRequest.
+    private volatile String requestUserAgent;
+
     public String getId() {
         return this.getClass().getName();
     }
@@ -65,8 +69,32 @@ public abstract class AbstractLambdaAuditor implements RequestHandler<Request, R
         return VersionUtil.resolveVersion(getClass());
     }
 
+    /**
+     * The User-Agent for requests to the audited site: the per-request custom agent when the monitored URL's
+     * auditor configuration sets one (bound by {@link #bindRequest(Request)}), otherwise
+     * {@link #get37AuditsUserAgent() the 37 Audits bot agent}. The Web Bot Auth signature is sent either way,
+     * so a site can still verify the crawler even under a custom agent.
+     */
     public String getUserAgent() {
+        return (requestUserAgent != null && !requestUserAgent.isBlank()) ? requestUserAgent : get37AuditsUserAgent();
+    }
+
+    /**
+     * The 37 Audits bot User-Agent, always used for requests to third parties (feeds, registries, tag hosts),
+     * regardless of any per-request custom agent set for the audited site.
+     */
+    public String get37AuditsUserAgent() {
         return "37AuditsBot/1.0 (+https://www.37audits.com/bot)";
+    }
+
+    /**
+     * Binds the per-request custom user agent for this invocation, so {@link #getUserAgent()} returns it in
+     * place of the bot agent. Called first thing in {@link #handleRequest}; an auditor that overrides
+     * {@code handleRequest} without calling {@code super} must call this itself, or {@link #getUserAgent()}
+     * would keep a previous invocation's value in a warm container.
+     */
+    protected void bindRequest(Request payload) {
+        requestUserAgent = (payload != null) ? payload.userAgent() : null;
     }
 
     /**
@@ -97,6 +125,7 @@ public abstract class AbstractLambdaAuditor implements RequestHandler<Request, R
 
     @Override
     public Response handleRequest(Request payload, Context context) {
+        bindRequest(payload);
         if (payload.url() == null) {
             logger.error("Unable to find the url");
             return new Response(getAuditor(), CheckStatus.FAIL, "Unable to find the url", null);

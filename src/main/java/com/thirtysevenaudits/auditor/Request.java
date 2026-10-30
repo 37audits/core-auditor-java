@@ -31,9 +31,14 @@ import java.util.Map;
  * <p>{@code profile} is the kind of site the monitored URL is. It is never
  * {@code null} after construction; a payload without the field yields
  * {@link UrlProfile#PUBLIC_WEBSITE}.
+ *
+ * <p>{@code userAgent} is the custom User-Agent the monitored URL's auditor
+ * configuration sets for requests to the audited site. {@code null} (also for a
+ * blank or absent field) means the default bot agent; see
+ * {@link com.thirtysevenaudits.auditor.aws.AbstractLambdaAuditor#getUserAgent()}.
  */
 public record Request(String id, String url, UrlProfile profile, List<Software> stack, BasicAuth basicAuth,
-        Map<String, Object> preferences) {
+        Map<String, Object> preferences, String userAgent) {
 
     public Request {
         if (profile == null) {
@@ -43,16 +48,25 @@ public record Request(String id, String url, UrlProfile profile, List<Software> 
         preferences = (preferences != null)
                 ? Collections.unmodifiableMap(new LinkedHashMap<>(preferences))
                 : Map.of();
+        if (userAgent != null && userAgent.isBlank()) {
+            userAgent = null;
+        }
+    }
+
+    /** Backward-compatible constructor for callers predating the custom user agent. */
+    public Request(String id, String url, UrlProfile profile, List<Software> stack, BasicAuth basicAuth,
+            Map<String, Object> preferences) {
+        this(id, url, profile, stack, basicAuth, preferences, null);
     }
 
     /** Backward-compatible constructor for callers predating profiles. */
     public Request(String id, String url, List<Software> stack, BasicAuth basicAuth,
             Map<String, Object> preferences) {
-        this(id, url, null, stack, basicAuth, preferences);
+        this(id, url, null, stack, basicAuth, preferences, null);
     }
 
     /** Backward-compatible constructor for callers predating preferences. */
     public Request(String id, String url, List<Software> stack, BasicAuth basicAuth) {
-        this(id, url, null, stack, basicAuth, Map.of());
+        this(id, url, null, stack, basicAuth, Map.of(), null);
     }
 }
