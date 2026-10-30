@@ -27,19 +27,32 @@ import java.util.Map;
  * the platform API resolved for this run (schema defaults overlaid with the
  * user's overrides), keyed by preference key. It is never {@code null} after
  * construction; a payload without the field yields an empty map.
+ *
+ * <p>{@code profile} is the kind of site the monitored URL is. It is never
+ * {@code null} after construction; a payload without the field yields
+ * {@link UrlProfile#PUBLIC_WEBSITE}.
  */
-public record Request(String id, String url, List<Software> stack, BasicAuth basicAuth,
+public record Request(String id, String url, UrlProfile profile, List<Software> stack, BasicAuth basicAuth,
         Map<String, Object> preferences) {
 
     public Request {
+        if (profile == null) {
+            profile = UrlProfile.PUBLIC_WEBSITE;
+        }
         // Not Map.copyOf: a JSON null value must not blow up deserialization.
         preferences = (preferences != null)
                 ? Collections.unmodifiableMap(new LinkedHashMap<>(preferences))
                 : Map.of();
     }
 
+    /** Backward-compatible constructor for callers predating profiles. */
+    public Request(String id, String url, List<Software> stack, BasicAuth basicAuth,
+            Map<String, Object> preferences) {
+        this(id, url, null, stack, basicAuth, preferences);
+    }
+
     /** Backward-compatible constructor for callers predating preferences. */
     public Request(String id, String url, List<Software> stack, BasicAuth basicAuth) {
-        this(id, url, stack, basicAuth, Map.of());
+        this(id, url, null, stack, basicAuth, Map.of());
     }
 }
