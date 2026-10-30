@@ -69,6 +69,12 @@ class HttpFetcherTest {
             exchange.sendResponseHeaders(302, -1);
             exchange.close();
         });
+        httpServer.createContext("/offsite", exchange -> {
+            record(exchange);
+            exchange.getResponseHeaders().add("Location", loopback + "/ok");
+            exchange.sendResponseHeaders(302, -1);
+            exchange.close();
+        });
         httpServer.createContext("/walled", exchange -> {
             record(exchange);
             // Radware's real Location: an unencoded space and parentheses in the query (the user agent).
@@ -241,6 +247,61 @@ class HttpFetcherTest {
         assertThat(response.statusCode()).isEqualTo(302);
         assertThat(response.header("location")).isEqualTo("/ok");
         assertThat(response.uri().getPath()).isEqualTo("/redirect");
+    }
+
+    @Test
+    void sameSiteRedirectsOnly_followsARedirectOnTheAuditedHost() throws Exception {
+        FetchResponse response = fetcher().toBuilder().auditedUrl(localhost).sameSiteRedirectsOnly(true).build()
+                .get(localhost + "/redirect");
+
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.uri().getPath()).isEqualTo("/ok");
+    }
+
+    @Test
+    void sameSiteRedirectsOnly_returnsARedirectToAnotherHostUnfollowed() throws Exception {
+        FetchResponse response = fetcher().toBuilder().auditedUrl(localhost).sameSiteRedirectsOnly(true).build()
+                .get(localhost + "/offsite");
+
+        assertThat(response.statusCode()).isEqualTo(302);
+        assertThat(response.header("location")).isEqualTo(loopback + "/ok");
+        assertThat(response.uri().getPath()).isEqualTo("/offsite");
+        assertThat(receivedMethods).hasSize(1);
+    }
+
+    @Test
+    void sameSiteRedirectsOnly_usesTheRequestedHostWithoutAnAuditedUrl() throws Exception {
+        FetchResponse response = fetcher().toBuilder().sameSiteRedirectsOnly(true).build()
+                .get(localhost + "/offsite");
+
+        assertThat(response.statusCode()).isEqualTo(302);
+    }
+
+    @Test
+    void redirects_toAnotherHostAreFollowedByDefault() throws Exception {
+        FetchResponse response = fetcher().toBuilder().auditedUrl(localhost).build().get(localhost + "/offsite");
+
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.uri().getHost()).isEqualTo("127.0.0.1");
+    }
+
+    @Test
+    void isSameSite_acceptsTheHostItsWwwTwinAndSubdomains() {
+        assertThat(HttpFetcher.isSameSite("example.com", "example.com")).isTrue();
+        assertThat(HttpFetcher.isSameSite("example.com", "WWW.Example.com.")).isTrue();
+        assertThat(HttpFetcher.isSameSite("www.example.com", "example.com")).isTrue();
+        assertThat(HttpFetcher.isSameSite("example.com", "shop.example.com")).isTrue();
+    }
+
+    @Test
+    void isSameSite_refusesOtherHostsSiblingsAndParents() {
+        assertThat(HttpFetcher.isSameSite("attacker.com", "victim.com")).isFalse();
+        assertThat(HttpFetcher.isSameSite("attacker.com", "victim.com.attacker.org")).isFalse();
+        assertThat(HttpFetcher.isSameSite("attacker.com", "notattacker.com")).isFalse();
+        assertThat(HttpFetcher.isSameSite("shop.example.com", "login.example.com")).isFalse();
+        assertThat(HttpFetcher.isSameSite("shop.example.com", "example.com")).isFalse();
+        assertThat(HttpFetcher.isSameSite("example.com", null)).isFalse();
+        assertThat(HttpFetcher.isSameSite(null, "example.com")).isFalse();
     }
 
     @Test
