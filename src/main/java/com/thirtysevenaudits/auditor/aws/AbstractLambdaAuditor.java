@@ -33,6 +33,7 @@ import com.thirtysevenaudits.auditor.CheckStatus;
 import com.thirtysevenaudits.auditor.Request;
 import com.thirtysevenaudits.auditor.Response;
 import com.thirtysevenaudits.auditor.SiteBlockedException;
+import com.thirtysevenaudits.auditor.UrlProfile;
 import com.thirtysevenaudits.crawler.WebBotAuthSigner;
 import com.thirtysevenaudits.http.FetchResponse;
 import com.thirtysevenaudits.http.HttpFetcher;
@@ -105,7 +106,7 @@ public abstract class AbstractLambdaAuditor implements RequestHandler<Request, R
         logger.info("Starting {} audit for {}", getName(), url);
         blockedBy = null;
         try {
-            Response response = process(url, payload.basicAuth(), payload.preferences());
+            Response response = process(url, payload.profile(), payload.basicAuth(), payload.preferences());
             if (blockedBy != null) {
                 // The auditor's own catch-all turned the block into a generic error.
                 return blocked(blockedBy);
@@ -259,6 +260,17 @@ public abstract class AbstractLambdaAuditor implements RequestHandler<Request, R
      */
     public Response process(String urlStr, BasicAuth basicAuth, Map<String, Object> preferences) {
         return process(urlStr, basicAuth);
+    }
+
+    /**
+     * Profile-aware hook. Auditors whose rules depend on the kind of site
+     * override this one; {@code profile} is never {@code null}. The default
+     * ignores the profile and delegates to
+     * {@link #process(String, BasicAuth, Map)}.
+     */
+    public Response process(String urlStr, UrlProfile profile, BasicAuth basicAuth,
+            Map<String, Object> preferences) {
+        return process(urlStr, basicAuth, preferences);
     }
 
     public Response success(Check check) {
