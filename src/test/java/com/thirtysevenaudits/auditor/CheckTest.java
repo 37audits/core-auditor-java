@@ -56,6 +56,31 @@ class CheckTest {
     }
 
     @Test
+    void convertFailToWarningKeepsKey() {
+        Check check = new Check(CheckStatus.FAIL, "https://example.com", "broken", "fix it", 0, Map.of(), CODE)
+                .withKey("compress");
+
+        assertThat(Check.convertFailToWarning(check).key()).isEqualTo(check.key());
+    }
+
+    @Test
+    void keyIsSerializedEncodedAndNullWhenUnset() {
+        Check keyed = new Check(CheckStatus.FAIL, "https://example.com", "broken", "fix it", 0, Map.of(), CODE)
+                .withKey("LSV-1793");
+        Check unkeyed = new Check(CheckStatus.SUCCESS, "https://example.com", "ok", null, 0, Map.of(), CODE);
+
+        assertThat(toJson(keyed)).contains("\"key\":\"TFNWLTE3OTM\"");
+        assertThat(toJson(unkeyed)).contains("\"key\":null");
+    }
+
+    @Test
+    void keyIsPartOfEquality() {
+        Check check = new Check(CheckStatus.FAIL, "https://example.com", "broken", "fix it", 0, Map.of(), CODE);
+
+        assertThat(check.withKey("a")).isNotEqualTo(check.withKey("b"));
+    }
+
+    @Test
     void codeConstructorWithoutRationaleLeavesItNull() {
         assertThat(CODE.rationale()).isNull();
     }
