@@ -46,6 +46,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Flow;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.InflaterInputStream;
@@ -165,8 +166,8 @@ public final class HttpFetcher {
 
             if (!settings.followRedirects || !REDIRECT_CODES.contains(status) || location == null
                     || hop >= MAX_REDIRECTS) {
-                return new FetchResponse(status, requested, current, exchange.headers, exchange.body,
-                        exchange.version, exchange.elapsed, exchange.truncated);
+                return respond(currentMethod, new FetchResponse(status, requested, current, exchange.headers,
+                        exchange.body, exchange.version, exchange.elapsed, exchange.truncated));
             }
 
             URI next = current.resolve(location.trim().replace(" ", "%20"));
@@ -174,8 +175,8 @@ public final class HttpFetcher {
                     && !isSameSite(settings.auditedHost != null ? settings.auditedHost : requested.getHost(),
                             next.getHost())) {
                 // An owner-verified host must not bounce the probes to a site nobody verified.
-                return new FetchResponse(status, requested, current, exchange.headers, exchange.body,
-                        exchange.version, exchange.elapsed, exchange.truncated);
+                return respond(currentMethod, new FetchResponse(status, requested, current, exchange.headers,
+                        exchange.body, exchange.version, exchange.elapsed, exchange.truncated));
             }
             if (SiteBlockedException.isBotWall(next)) {
                 // Following would audit the wall's challenge page instead of the site.
@@ -192,6 +193,17 @@ public final class HttpFetcher {
                 currentBody = null;
             }
         }
+    }
+
+    private FetchResponse respond(String method, FetchResponse response) {
+        if (settings.onResponse != null) {
+            try {
+                settings.onResponse.accept(method, response);
+            } catch (RuntimeException e) {
+                // Recording a response must never break the fetch.
+            }
+        }
+        return response;
     }
 
     private Exchange exchange(String method, URI uri, Map<String, String> extraHeaders, byte[] body)
@@ -477,6 +489,7 @@ public final class HttpFetcher {
         private int maxBodyBytes = DEFAULT_MAX_BODY_BYTES;
         private final Map<String, String> headers = new HashMap<>();
         private Consumer<SiteBlockedException> onBlocked;
+        private BiConsumer<String, FetchResponse> onResponse;
 
         private Builder(String userAgent) {
             this.userAgent = userAgent;
@@ -568,6 +581,15 @@ public final class HttpFetcher {
             return this;
         }
 
+        /**
+         * Called with the method and the response of every request, after redirects, before it is returned: how
+         * {@code AbstractLambdaAuditor} records the run's evidence. An exception it throws is ignored.
+         */
+        public Builder onResponse(BiConsumer<String, FetchResponse> onResponse) {
+            this.onResponse = onResponse;
+            return this;
+        }
+
         public HttpFetcher build() {
             return new HttpFetcher(this);
         }
@@ -586,6 +608,7 @@ public final class HttpFetcher {
             copy.maxBodyBytes = maxBodyBytes;
             copy.headers.putAll(headers);
             copy.onBlocked = onBlocked;
+            copy.onResponse = onResponse;
             return copy;
         }
     }
