@@ -19,6 +19,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Lambda input.
@@ -36,9 +37,13 @@ import java.util.Map;
  * configuration sets for requests to the audited site. {@code null} (also for a
  * blank or absent field) means the default bot agent; see
  * {@link com.thirtysevenaudits.auditor.aws.AbstractLambdaAuditor#getUserAgent()}.
+ *
+ * <p>{@code ignores} lists the findings the monitored URL's users chose to ignore that have not expired; the auditor
+ * reports a matching check as {@link CheckStatus#INFORMATION} (see {@link CheckIgnore}). It is never {@code null}
+ * after construction; a payload without the field yields an empty list.
  */
 public record Request(String id, String url, UrlProfile profile, List<Software> stack, BasicAuth basicAuth,
-        Map<String, Object> preferences, String userAgent) {
+        Map<String, Object> preferences, String userAgent, List<CheckIgnore> ignores) {
 
     public Request {
         if (profile == null) {
@@ -51,22 +56,29 @@ public record Request(String id, String url, UrlProfile profile, List<Software> 
         if (userAgent != null && userAgent.isBlank()) {
             userAgent = null;
         }
+        ignores = (ignores != null) ? ignores.stream().filter(Objects::nonNull).toList() : List.of();
+    }
+
+    /** Backward-compatible constructor for callers predating check ignores. */
+    public Request(String id, String url, UrlProfile profile, List<Software> stack, BasicAuth basicAuth,
+            Map<String, Object> preferences, String userAgent) {
+        this(id, url, profile, stack, basicAuth, preferences, userAgent, null);
     }
 
     /** Backward-compatible constructor for callers predating the custom user agent. */
     public Request(String id, String url, UrlProfile profile, List<Software> stack, BasicAuth basicAuth,
             Map<String, Object> preferences) {
-        this(id, url, profile, stack, basicAuth, preferences, null);
+        this(id, url, profile, stack, basicAuth, preferences, null, null);
     }
 
     /** Backward-compatible constructor for callers predating profiles. */
     public Request(String id, String url, List<Software> stack, BasicAuth basicAuth,
             Map<String, Object> preferences) {
-        this(id, url, null, stack, basicAuth, preferences, null);
+        this(id, url, null, stack, basicAuth, preferences, null, null);
     }
 
     /** Backward-compatible constructor for callers predating preferences. */
     public Request(String id, String url, List<Software> stack, BasicAuth basicAuth) {
-        this(id, url, null, stack, basicAuth, Map.of(), null);
+        this(id, url, null, stack, basicAuth, Map.of(), null, null);
     }
 }

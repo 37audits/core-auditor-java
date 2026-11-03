@@ -16,6 +16,7 @@
 package com.thirtysevenaudits.auditor.aws;
 
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,6 +30,8 @@ import com.thirtysevenaudits.auditor.Auditor;
 import com.thirtysevenaudits.auditor.BasicAuth;
 import com.thirtysevenaudits.auditor.Check;
 import com.thirtysevenaudits.auditor.CheckCode;
+import com.thirtysevenaudits.auditor.CheckIgnore;
+import com.thirtysevenaudits.auditor.CheckKeys;
 import com.thirtysevenaudits.auditor.CheckStatus;
 import com.thirtysevenaudits.auditor.Request;
 import com.thirtysevenaudits.auditor.Response;
@@ -141,6 +144,8 @@ public abstract class AbstractLambdaAuditor implements RequestHandler<Request, R
                 return blocked(blockedBy);
             }
             if (response != null) {
+                response = applyIgnores(response, payload.ignores());
+                logUnkeyedChecks(response);
                 logger.info("Finished {} audit for {} with status {}", getName(), url, response.status());
             } else {
                 logger.info("Finished {} audit for {}", getName(), url);
@@ -332,6 +337,91 @@ public abstract class AbstractLambdaAuditor implements RequestHandler<Request, R
 
     public Response error(String message, List<Check> checks) {
         return new Response(getAuditor(), CheckStatus.ERROR, message, checks);
+    }
+
+    /**
+     * {@code response} with every {@link CheckStatus#FAIL} or {@link CheckStatus#WARNING} check that one of
+     * {@code ignores} {@link CheckIgnore#matches matches} turned into {@link CheckStatus#INFORMATION}. The check keeps
+     * its message and gains {@code ignoredStatus} (its original status), {@code ignoreId} and {@code ignoreReason} in
+     * its data. When a check was ignored, the response status is recomputed from the remaining checks (never made
+     * more severe) and the message names the ignored findings. An {@link CheckStatus#ERROR} response is returned as
+     * is.
+     */
+    protected Response applyIgnores(Response response, List<CheckIgnore> ignores) {
+        if (response == null || ignores == null || ignores.isEmpty() || response.checks() == null
+                || response.status() == CheckStatus.ERROR) {
+            return response;
+        }
+
+        List<Check> checks = new ArrayList<>(response.checks().size());
+        List<String> ignored = new ArrayList<>();
+
+        for (Check check : response.checks()) {
+            CheckIgnore ignore = (check != null
+                    && (check.status() == CheckStatus.FAIL || check.status() == CheckStatus.WARNING))
+                            ? ignores.stream().filter(i -> i.matches(check)).findFirst().orElse(null)
+                            : null;
+            if (ignore == null) {
+                checks.add(check);
+                continue;
+            }
+
+            Map<String, Object> data = new LinkedHashMap<>();
+            if (check.data() != null) {
+                data.putAll(check.data());
+            }
+            data.put("ignoredStatus", check.status().name());
+            data.put("ignoreId", ignore.id());
+            data.put("ignoreReason", ignore.reason());
+
+            checks.add(new Check(CheckStatus.INFORMATION, check.resource(), check.message(), check.recommendation(),
+                    check.score(), data, check.code(), check.key(), check.order()));
+            ignored.add(CheckKeys.decode(check.key())
+                    + ((ignore.reason() != null && !ignore.reason().isBlank()) ? " (" + ignore.reason().strip() + ")"
+                            : ""));
+        }
+
+        if (ignored.isEmpty()) {
+            return response;
+        }
+
+        CheckStatus recomputed = determineOverallStatus(
+                checks.stream().filter(c -> c != null).toList());
+        CheckStatus status = (severity(recomputed) < severity(response.status())) ? recomputed : response.status();
+        String message = ((response.message() != null && !response.message().isBlank())
+                ? response.message().strip() + " "
+                : "") + "Ignored: " + String.join("; ", ignored) + ".";
+
+        logger.info("Ignored {} check(s) of {}: {}", ignored.size(), getName(), ignored);
+
+        return new Response(response.version(), response.auditor(), status, response.date(), message,
+                response.groupId(), checks);
+    }
+
+    private static int severity(CheckStatus status) {
+        return switch (status) {
+            case FAIL -> 3;
+            case WARNING -> 2;
+            case SUCCESS -> 1;
+            default -> 0;
+        };
+    }
+
+    /**
+     * Logs an error for every {@link CheckStatus#FAIL} or {@link CheckStatus#WARNING} check without a
+     * {@link Check#key() key}: such a finding cannot be ignored. The run itself is not affected.
+     */
+    private void logUnkeyedChecks(Response response) {
+        if (response.checks() == null) {
+            return;
+        }
+        for (Check check : response.checks()) {
+            if (check != null && check.key() == null
+                    && (check.status() == CheckStatus.FAIL || check.status() == CheckStatus.WARNING)) {
+                logger.error("{} reported a {} check without a key: {}", getName(), check.status(),
+                        (check.code() != null) ? check.code().id() : null);
+            }
+        }
     }
 
     /**
