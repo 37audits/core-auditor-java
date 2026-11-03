@@ -16,6 +16,7 @@
 package com.thirtysevenaudits.auditor.aws;
 
 import java.net.URI;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -38,6 +39,9 @@ import com.thirtysevenaudits.auditor.Response;
 import com.thirtysevenaudits.auditor.SiteBlockedException;
 import com.thirtysevenaudits.auditor.UrlProfile;
 import com.thirtysevenaudits.crawler.WebBotAuthSigner;
+import com.thirtysevenaudits.evidence.EvidenceRecorder;
+import com.thirtysevenaudits.evidence.EvidenceSummary;
+import com.thirtysevenaudits.evidence.EvidenceUploader;
 import com.thirtysevenaudits.http.FetchResponse;
 import com.thirtysevenaudits.http.HttpFetcher;
 import com.thirtysevenaudits.util.VersionUtil;
@@ -61,6 +65,11 @@ public abstract class AbstractLambdaAuditor implements RequestHandler<Request, R
     // The custom user agent for the run in progress (null = use the bot agent), bound by bindRequest.
     // Like blockedBy, it is per-invocation state reset at the start of every handleRequest.
     private volatile String requestUserAgent;
+
+    // The inputs of the run in progress, reset at the start of every handleRequest; see evidence().
+    private volatile EvidenceRecorder evidence = new EvidenceRecorder();
+
+    private final EvidenceUploader evidenceUploader = new EvidenceUploader();
 
     public String getId() {
         return this.getClass().getName();
@@ -119,7 +128,23 @@ public abstract class AbstractLambdaAuditor implements RequestHandler<Request, R
      */
     protected HttpFetcher httpFetcher(String auditedUrl, BasicAuth basicAuth) {
         return HttpFetcher.builder(getUserAgent()).auditedUrl(auditedUrl).basicAuth(basicAuth)
-                .signer(WebBotAuthSigner.defaultSigner().orElse(null)).onBlocked(e -> blockedBy = e).build();
+                .signer(WebBotAuthSigner.defaultSigner().orElse(null)).onBlocked(e -> blockedBy = e)
+                .onResponse((method, response) -> evidence.http(method, response)).build();
+    }
+
+    /**
+     * The evidence of the run in progress: the inputs the audit used. Every response of {@link #httpFetcher}, the
+     * browser navigation checked by {@link #ensureNotBlocked(String, com.microsoft.playwright.Response)} and the
+     * request's stack are recorded already; record any other input (a DNS answer, a certificate chain, a WHOIS reply)
+     * here. The file is uploaded when the run ends, if the request asked for evidence.
+     */
+    protected EvidenceRecorder evidence() {
+        return evidence;
+    }
+
+    /** The client that stores the evidence file; tests override it. */
+    protected EvidenceUploader evidenceUploader() {
+        return evidenceUploader;
     }
 
     public Auditor getAuditor() {
@@ -137,6 +162,12 @@ public abstract class AbstractLambdaAuditor implements RequestHandler<Request, R
         String url = payload.url();
         logger.info("Starting {} audit for {}", getName(), url);
         blockedBy = null;
+        evidence = new EvidenceRecorder();
+        evidence.stack(payload.stack());
+        return withEvidence(payload, audit(payload, url));
+    }
+
+    private Response audit(Request payload, String url) {
         try {
             Response response = process(url, payload.profile(), payload.basicAuth(), payload.preferences());
             if (blockedBy != null) {
@@ -159,6 +190,32 @@ public abstract class AbstractLambdaAuditor implements RequestHandler<Request, R
             }
             logger.error("Failed {} audit for {}", getName(), url, e);
             return error(describe(e), null);
+        }
+    }
+
+    /**
+     * {@code response} with the summary of the run's evidence, after storing the file at the request's upload URL.
+     * Without an upload URL the response is returned as is; an upload that fails is reported in the summary, never as
+     * a failed audit.
+     */
+    private Response withEvidence(Request payload, Response response) {
+        if (response == null || payload.evidenceUploadUrl() == null) {
+            return response;
+        }
+        EvidenceRecorder recorded = evidence;
+        if (recorded.isEmpty()) {
+            return response.withEvidence(new EvidenceSummary(false, 0, 0, recorded.dropped()));
+        }
+        try {
+            byte[] file = recorded.toGzipJson(getAuditor(), payload.url(), Instant.now());
+            boolean uploaded = evidenceUploader().upload(payload.evidenceUploadUrl(), file);
+            int entries = recorded.entries().size();
+            logger.info("Evidence of {} audit: {} entries, {} bytes, uploaded {}", getName(), entries, file.length,
+                    uploaded);
+            return response.withEvidence(new EvidenceSummary(uploaded, entries, file.length, recorded.dropped()));
+        } catch (RuntimeException e) {
+            logger.warn("Unable to store the evidence of {} audit", getName(), e);
+            return response.withEvidence(new EvidenceSummary(false, 0, 0, recorded.dropped()));
         }
     }
 
@@ -216,7 +273,6 @@ public abstract class AbstractLambdaAuditor implements RequestHandler<Request, R
             blockedBy = SiteBlockedException.botWall(url, statusCode, landed);
             throw blockedBy;
         }
-        ensureNotBlocked(url, navigation.status(), navigation.headers().get(SiteBlockedException.HEADER_CF_MITIGATED));
         String body;
         try {
             body = navigation.text();
@@ -224,6 +280,8 @@ public abstract class AbstractLambdaAuditor implements RequestHandler<Request, R
             // A redirect or a later navigation can leave the body unavailable; that is not a refusal.
             body = null;
         }
+        evidence.browser(navigation.url(), navigation.status(), navigation.headers(), body);
+        ensureNotBlocked(url, navigation.status(), navigation.headers().get(SiteBlockedException.HEADER_CF_MITIGATED));
         ensureNotBotWallPage(url, navigation.status(), body);
     }
 

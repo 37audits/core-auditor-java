@@ -41,9 +41,13 @@ import java.util.Objects;
  * <p>{@code ignores} lists the findings the monitored URL's users chose to ignore that have not expired; the auditor
  * reports a matching check as {@link CheckStatus#INFORMATION} (see {@link CheckIgnore}). It is never {@code null}
  * after construction; a payload without the field yields an empty list.
+ *
+ * <p>{@code evidenceUploadUrl} is the presigned URL where the auditor stores the run's evidence (see
+ * {@link com.thirtysevenaudits.evidence.EvidenceRecorder}). {@code null} (also for a blank or absent field) means the
+ * platform does not want evidence for this run.
  */
 public record Request(String id, String url, UrlProfile profile, List<Software> stack, BasicAuth basicAuth,
-        Map<String, Object> preferences, String userAgent, List<CheckIgnore> ignores) {
+        Map<String, Object> preferences, String userAgent, List<CheckIgnore> ignores, String evidenceUploadUrl) {
 
     public Request {
         if (profile == null) {
@@ -57,28 +61,37 @@ public record Request(String id, String url, UrlProfile profile, List<Software> 
             userAgent = null;
         }
         ignores = (ignores != null) ? ignores.stream().filter(Objects::nonNull).toList() : List.of();
+        if (evidenceUploadUrl != null && evidenceUploadUrl.isBlank()) {
+            evidenceUploadUrl = null;
+        }
+    }
+
+    /** Backward-compatible constructor for callers predating evidence. */
+    public Request(String id, String url, UrlProfile profile, List<Software> stack, BasicAuth basicAuth,
+            Map<String, Object> preferences, String userAgent, List<CheckIgnore> ignores) {
+        this(id, url, profile, stack, basicAuth, preferences, userAgent, ignores, null);
     }
 
     /** Backward-compatible constructor for callers predating check ignores. */
     public Request(String id, String url, UrlProfile profile, List<Software> stack, BasicAuth basicAuth,
             Map<String, Object> preferences, String userAgent) {
-        this(id, url, profile, stack, basicAuth, preferences, userAgent, null);
+        this(id, url, profile, stack, basicAuth, preferences, userAgent, null, null);
     }
 
     /** Backward-compatible constructor for callers predating the custom user agent. */
     public Request(String id, String url, UrlProfile profile, List<Software> stack, BasicAuth basicAuth,
             Map<String, Object> preferences) {
-        this(id, url, profile, stack, basicAuth, preferences, null, null);
+        this(id, url, profile, stack, basicAuth, preferences, null, null, null);
     }
 
     /** Backward-compatible constructor for callers predating profiles. */
     public Request(String id, String url, List<Software> stack, BasicAuth basicAuth,
             Map<String, Object> preferences) {
-        this(id, url, null, stack, basicAuth, preferences, null, null);
+        this(id, url, null, stack, basicAuth, preferences, null, null, null);
     }
 
     /** Backward-compatible constructor for callers predating preferences. */
     public Request(String id, String url, List<Software> stack, BasicAuth basicAuth) {
-        this(id, url, null, stack, basicAuth, Map.of(), null, null);
+        this(id, url, null, stack, basicAuth, Map.of(), null, null, null);
     }
 }
