@@ -172,6 +172,31 @@ class HttpFetcherTest {
     }
 
     @Test
+    void onResponse_receivesTheMethodAndTheFinalResponseOfEveryRequest() throws Exception {
+        List<String> seen = new CopyOnWriteArrayList<>();
+        HttpFetcher fetcher = HttpFetcher.builder("test-agent")
+                .onResponse((method, response) -> seen.add(method + " " + response.requestedUri() + " -> "
+                        + response.uri() + " " + response.statusCode()))
+                .build().toBuilder().build();
+
+        FetchResponse response = fetcher.get(localhost + "/redirect");
+        fetcher.head(localhost + "/ok");
+
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(seen).containsExactly("GET " + localhost + "/redirect -> " + localhost + "/ok 200",
+                "HEAD " + localhost + "/ok -> " + localhost + "/ok 200");
+    }
+
+    @Test
+    void onResponse_failureDoesNotBreakTheFetch() throws Exception {
+        HttpFetcher fetcher = HttpFetcher.builder("test-agent").onResponse((method, response) -> {
+            throw new IllegalStateException("recorder broke");
+        }).build();
+
+        assertThat(fetcher.get(localhost + "/ok").text()).isEqualTo("ok");
+    }
+
+    @Test
     void basicAuth_isSentToTheAuditedHostOnly() throws Exception {
         HttpFetcher fetcher = HttpFetcher.builder("test-agent").auditedUrl(localhost + "/").basicAuth(CREDENTIALS)
                 .build();
